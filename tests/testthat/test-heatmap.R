@@ -748,6 +748,98 @@ test_that("ComplexHeatmap_HeatmapApp() attaches supplied column_data to the call
     expect_equal(entry$matrix, example_heatmap_matrix)
 })
 
+# ---- Default annotations and color resolution --------------------------------------------------
+
+test_that("ComplexHeatmap_HeatmapServer renders default annotations on startup without client round-trip", {
+    skip_if_not_installed("ComplexHeatmap")
+    skip_if_not_installed("InteractiveComplexHeatmap")
+    skip_if_not_installed("circlize")
+
+    df <- example_heatmap_matrix
+    col_df <- example_heatmap_column_data
+    sample_cols <- setdiff(names(df), c("gene", "pathway", "mean_expression"))
+    dat <- list(matrix = df, column_annotations = col_df)
+
+    def_rows <- list(
+        row1 = list(column = "pathway", side = "Left"),
+        row2 = list(column = "mean_expression", side = "Right")
+    )
+    def_cols <- list(
+        col1 = list(column = "condition", side = "Top")
+    )
+
+    custom_pathway_colors <- c("Cell Cycle" = "#FF0000", Immune = "#00FF00", Metabolic = "#0000FF")
+
+    defaults <- list(
+        matrix.cols = sample_cols,
+        rowname.col = "gene",
+        column_key = "sample",
+        row_annotations = def_rows,
+        column_annotations = def_cols,
+        pathway = custom_pathway_colors
+    )
+
+    shiny::testServer(
+        ComplexHeatmap_HeatmapServer,
+        args = list(data = shiny::reactive(dat), defaults = defaults),
+        {
+            session$setInputs(
+                matrix.cols = sample_cols,
+                rowname.col = "gene",
+                column_key = "sample",
+                row_filter = "",
+                column_filter = "",
+                auto.update = TRUE
+            )
+
+            # Annotation specs should immediately resolve from defaults
+            row_spec <- row_annotation_spec()
+            expect_length(row_spec, 2)
+            expect_equal(row_spec[["row1"]]$column, "pathway")
+            expect_false(row_spec[["row1"]]$numeric)
+            expect_setequal(row_spec[["row1"]]$levels, c("Cell Cycle", "Immune", "Metabolic"))
+
+            expect_equal(row_spec[["row2"]]$column, "mean_expression")
+            expect_true(row_spec[["row2"]]$numeric)
+
+            col_spec <- column_annotation_spec()
+            expect_length(col_spec, 1)
+            expect_equal(col_spec[["col1"]]$column, "condition")
+            expect_false(col_spec[["col1"]]$numeric)
+            expect_setequal(col_spec[["col1"]]$levels, c("Disease", "Healthy"))
+
+            # row_annotation_colors_ui should render immediately
+            rendered_row_ui <- output$row_annotation_colors_ui
+            expect_false(is.null(rendered_row_ui))
+            html_ui <- paste(as.character(rendered_row_ui), collapse = "")
+            expect_true(grepl("multi-color-picker", html_ui))
+            expect_true(grepl("pathway", html_ui))
+            expect_true(grepl("#FF0000", html_ui))
+
+            # build_heatmap should construct a Heatmap with annotations without skipping them
+            drawn_ht <- build_heatmap()
+            expect_s4_class(drawn_ht, "HeatmapList")
+            ht_obj <- drawn_ht@ht_list[[1]]
+            expect_false(is.null(ht_obj@left_annotation))
+            expect_false(is.null(ht_obj@right_annotation))
+            expect_false(is.null(ht_obj@top_annotation))
+
+            # User updates row annotations dynamically via input
+            session$setInputs(
+                row_annotations = list(
+                    row_annotations1 = list(column = "pathway", side = "Right")
+                )
+            )
+
+            # Left annotation should now be NULL, right annotation should have pathway
+            drawn_ht2 <- build_heatmap()
+            ht_obj2 <- drawn_ht2@ht_list[[1]]
+            expect_null(ht_obj2@left_annotation)
+            expect_false(is.null(ht_obj2@right_annotation))
+        }
+    )
+})
+
 test_that("the Filter tab carries its guidance in tooltips, not as on-screen text", {
     dat <- list(matrix = example_heatmap_matrix, column_annotations = example_heatmap_column_data)
     html <- paste(as.character(ComplexHeatmap_HeatmapInputsUI("h", dat)), collapse = "")
@@ -777,4 +869,69 @@ test_that("ComplexHeatmap_HeatmapOutputUI passes compact through to the underlyi
     html <- as.character(ComplexHeatmap_HeatmapOutputUI("h", compact = TRUE))
     # Compact mode floats the info panel rather than giving it a static area.
     expect_true(grepl("float", html, ignore.case = TRUE))
+})
+
+test_that("a floating info panel is re-parked so it cannot widen the page", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+
+    # InteractiveComplexHeatmap parks the detached panel at right: -10000px,
+    # which extends the host document's scrollable width by ~10,000px.
+    for (ui in list(
+        ComplexHeatmap_HeatmapOutputUI("mod", compact = TRUE),
+        ComplexHeatmap_HeatmapOutputUI("mod", output_ui_float = TRUE),
+        ComplexHeatmap_HeatmapInfoOutputUI("mod", output_ui_float = TRUE)
+    )) {
+        deps <- vapply(htmltools::findDependencies(ui), function(d) d$name, character(1))
+        expect_true("vizmodules-heatmap-float-output" %in% deps)
+        expect_true(grepl(
+            'VizModules.heatmapFloatOutput({"id":"mod_Heatmap"});',
+            as.character(ui), fixed = TRUE
+        ))
+    }
+
+    # A static info panel is already contained by its own layout position.
+    for (off in list(
+        ComplexHeatmap_HeatmapOutputUI("mod"),
+        ComplexHeatmap_HeatmapInfoOutputUI("mod")
+    )) {
+        deps <- vapply(htmltools::findDependencies(off), function(d) d$name, character(1))
+        expect_false("vizmodules-heatmap-float-output" %in% deps)
+        expect_false(grepl("heatmapFloatOutput", as.character(off), fixed = TRUE))
+    }
+})
+
+test_that(".heatmap_widget_id mirrors InteractiveComplexHeatmap's id validation", {
+    expect_equal(.heatmap_widget_id("heatmap-Heatmap"), "heatmap_Heatmap")
+    expect_equal(.heatmap_widget_id("a b.c-d"), "a_b_c_d")
+    expect_equal(.heatmap_widget_id("Heatmap"), "Heatmap")
+    expect_equal(.heatmap_widget_id("1heatmap"), "v_1heatmap")
+})
+
+test_that("the heatmap output UIs fit their container's width unless told not to", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+
+    ui <- ComplexHeatmap_HeatmapOutputUI("mod")
+    deps <- vapply(htmltools::findDependencies(ui), function(d) d$name, character(1))
+    expect_true("vizmodules-heatmap-fit-width" %in% deps)
+
+    html <- as.character(ui)
+    expect_true(grepl('"root":".mod_Heatmap_widget"', html, fixed = TRUE))
+    expect_true(grepl('"panels":["heatmap","sub_heatmap"]', html, fixed = TRUE))
+    expect_true(grepl('"output":true', html, fixed = TRUE))
+
+    main <- as.character(ComplexHeatmap_HeatmapMainOutputUI("mod"))
+    expect_true(grepl('"root":"#mod_Heatmap_heatmap_group"', main, fixed = TRUE))
+    expect_true(grepl('"panels":["heatmap"]', main, fixed = TRUE))
+
+    sub <- as.character(ComplexHeatmap_HeatmapSubOutputUI("mod"))
+    expect_true(grepl('"root":"#mod_Heatmap_sub_heatmap_group"', sub, fixed = TRUE))
+    expect_true(grepl('"panels":["sub_heatmap"]', sub, fixed = TRUE))
+
+    for (off in list(
+        ComplexHeatmap_HeatmapOutputUI("mod", fit.width = FALSE),
+        ComplexHeatmap_HeatmapMainOutputUI("mod", fit.width = FALSE),
+        ComplexHeatmap_HeatmapSubOutputUI("mod", fit.width = FALSE)
+    )) {
+        expect_false(grepl("heatmapFitWidth", as.character(off), fixed = TRUE))
+    }
 })

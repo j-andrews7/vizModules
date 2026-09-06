@@ -141,7 +141,7 @@ multiDynamicInput <- function(inputId,
     }
 
     value_json <- if (!is.null(elements)) {
-        jsonlite::toJSON(unname(.mdi_value_to_payload(elements, field_keys)), auto_unbox = TRUE)
+        jsonlite::toJSON(unname(.mdi_value_to_payload(elements, field_keys, row_spec)), auto_unbox = TRUE)
     } else {
         "[]"
     }
@@ -227,17 +227,37 @@ updateMultiDynamicInput <- function(session, inputId, elements = NULL, clear = F
 #'   `NULL` uses each row's own names.
 #' @return A list of `{ fields: [{ key, value }, ...] }` row objects.
 #'
+#' Shape an elements list into the payload expected by the client
+#'
+#' @param value Named list of rows, each a named list of field values.
+#' @param field_keys Optional character vector of field keys.
+#' @param row_spec Optional named list describing row fields.
+#'
+#' @return A list of lists, each with a `fields` element.
+#'
 #' @author Jacob Martin
 #' @rdname INTERNAL_mdi_value_to_payload
 #' @keywords internal
-.mdi_value_to_payload <- function(value, field_keys) {
+.mdi_value_to_payload <- function(value, field_keys, row_spec = NULL) {
     if (is.null(value) || length(value) == 0) {
         return(list())
     }
     lapply(value, function(row) {
         keys <- if (!is.null(field_keys)) field_keys else names(row)
         fields <- lapply(keys, function(key) {
-            list(key = key, value = row[[key]])
+            val <- row[[key]]
+            if (is.null(val) && !is.null(row_spec) && !is.null(row_spec[[key]])) {
+                spec <- row_spec[[key]]
+                args <- spec$args
+                if (!is.null(args$value)) {
+                    val <- args$value
+                } else if (!is.null(args$selected)) {
+                    val <- args$selected
+                } else if (!is.null(args$choices) && length(args$choices) > 0) {
+                    val <- if (is.list(args$choices)) unlist(args$choices)[1] else unname(args$choices)[1]
+                }
+            }
+            list(key = key, value = val)
         })
         list(fields = fields)
     })

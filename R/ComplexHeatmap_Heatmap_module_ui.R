@@ -544,6 +544,11 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' one static panel remains. No server-side change is needed to turn compact
 #' mode on or off.
 #'
+#' A floating info panel is moved onto `<body>` by \pkg{InteractiveComplexHeatmap}
+#' and parked off-screen when idle. It is parked to the *left* here rather than
+#' to the right as the package does, since a box parked past the right edge
+#' extends the host page's scrollable width by 10,000px.
+#'
 #' To place the three components independently anywhere in a custom UI
 #' (separate tabs, cards, columns, etc.), use [ComplexHeatmap_HeatmapMainOutputUI()],
 #' [ComplexHeatmap_HeatmapSubOutputUI()], and [ComplexHeatmap_HeatmapInfoOutputUI()]
@@ -557,6 +562,14 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' @param resizable Logical; accepted for signature parity with the other module
 #'   output functions but ignored, since the InteractiveComplexHeatmap widget
 #'   manages its own sizing.
+#' @param fit.width Logical; when `TRUE` (the default) the widget's panels are
+#'   scaled once on load so the whole thing fits the width of its container,
+#'   instead of sitting at the fixed pixel widths baked in by
+#'   \pkg{InteractiveComplexHeatmap}. `width1`/`width2` (and their defaults)
+#'   then act as the relative widths that get scaled, rather than absolute
+#'   sizes. Heights are left alone, and the widget's own resize handle and size
+#'   tab still override the fitted width afterwards. Pass `FALSE` for fixed
+#'   pixel widths.
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()], e.g.
 #'   `layout`, `compact`, `width1`/`height1`, `title1`/`title2`/`title3`.
@@ -578,7 +591,9 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' ComplexHeatmap_HeatmapOutputUI("heatmap", layout = "1|(2-3)")
 #' # Compact: no sub-heatmap panel, click/brush info floats near the cursor
 #' ComplexHeatmap_HeatmapOutputUI("heatmap", compact = TRUE)
-ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
+#' # Fixed pixel widths, ignoring the container:
+#' ComplexHeatmap_HeatmapOutputUI("heatmap", fit.width = FALSE)
+ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -587,7 +602,19 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(ns("Heatmap"), ...)
+    dots <- list(...)
+    .heatmap_float_output(
+        .heatmap_fit_width(
+            InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(ns("Heatmap"), ...),
+            ns("Heatmap"),
+            scope = "widget",
+            panels = c("heatmap", "sub_heatmap"),
+            output = TRUE,
+            enable = fit.width
+        ),
+        ns("Heatmap"),
+        enable = isTRUE(dots$compact) || isTRUE(dots$output_ui_float)
+    )
 }
 
 
@@ -607,6 +634,10 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
 #'   heatmap.
 #' @param title Optional panel title. `NULL` (the default) omits the title.
 #' @param width,height Panel dimensions in pixels.
+#' @param fit.width Logical; when `TRUE` (the default) the panel is scaled once
+#'   on load to fit the width of its container, making `width` a starting
+#'   proportion rather than an absolute size. See
+#'   [ComplexHeatmap_HeatmapOutputUI()].
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::originalHeatmapOutput()], e.g. `action`,
 #'   `response`, `brush_opt`.
@@ -623,7 +654,8 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
 #' @examples
 #' library(VizModules)
 #' ComplexHeatmap_HeatmapMainOutputUI("heatmap", title = "Heatmap")
-ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, height = 350, ...) {
+ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, height = 350,
+                                               fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -632,9 +664,15 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::originalHeatmapOutput(
+    .heatmap_fit_width(
+        InteractiveComplexHeatmap::originalHeatmapOutput(
+            ns("Heatmap"),
+            title = title, width = width, height = height, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, height = height, ...
+        scope = "main",
+        panels = "heatmap",
+        enable = fit.width
     )
 }
 
@@ -651,6 +689,10 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
 #'   heatmap.
 #' @param title Optional panel title. `NULL` (the default) omits the title.
 #' @param width,height Panel dimensions in pixels.
+#' @param fit.width Logical; when `TRUE` (the default) the panel is scaled once
+#'   on load to fit the width of its container, making `width` a starting
+#'   proportion rather than an absolute size. See
+#'   [ComplexHeatmap_HeatmapOutputUI()].
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::subHeatmapOutput()].
 #'
@@ -666,7 +708,8 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
 #' @examples
 #' library(VizModules)
 #' ComplexHeatmap_HeatmapSubOutputUI("heatmap", title = "Selected region")
-ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, height = 350, ...) {
+ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, height = 350,
+                                              fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -675,9 +718,15 @@ ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, hei
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::subHeatmapOutput(
+    .heatmap_fit_width(
+        InteractiveComplexHeatmap::subHeatmapOutput(
+            ns("Heatmap"),
+            title = title, width = width, height = height, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, height = height, ...
+        scope = "sub",
+        panels = "sub_heatmap",
+        enable = fit.width
     )
 }
 
@@ -719,8 +768,176 @@ ComplexHeatmap_HeatmapInfoOutputUI <- function(id, title = NULL, width = 400, ..
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::HeatmapInfoOutput(
+    dots <- list(...)
+    .heatmap_float_output(
+        InteractiveComplexHeatmap::HeatmapInfoOutput(
+            ns("Heatmap"),
+            title = title, width = width, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, ...
+        enable = isTRUE(dots$output_ui_float)
+    )
+}
+
+
+#' Element ID used by an InteractiveComplexHeatmap widget
+#'
+#' Mirrors \pkg{InteractiveComplexHeatmap}'s internal `validate_heatmap_id()`,
+#' which is what actually decides the DOM ids the widget's markup and scripts
+#' use. A module namespace such as `"heatmap-Heatmap"` becomes
+#' `"heatmap_Heatmap"`, so selectors must be built from this rather than from
+#' the id handed to the output functions.
+#'
+#' @param id The heatmap id passed to the InteractiveComplexHeatmap output
+#'   functions, i.e. `ns("Heatmap")`.
+#'
+#' @return A character scalar; the id as it appears in the rendered HTML.
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_widget_id
+#' @keywords internal
+.heatmap_widget_id <- function(id) {
+    hid <- gsub("\\W+", "_", id)
+    if (!grepl("^[a-zA-Z]", hid)) {
+        hid <- paste0("v_", hid)
+    }
+    hid
+}
+
+
+#' HTML dependency for the heatmap width fitting script
+#'
+#' Ships the script that rescales an InteractiveComplexHeatmap widget's panels
+#' to their container on load.
+#'
+#' @return An `htmltools::htmlDependency` object.
+#'
+#' @importFrom htmltools htmlDependency
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_fit_width_dependency
+#' @keywords internal
+.heatmap_fit_width_dependency <- function() {
+    htmlDependency(
+        name = "vizmodules-heatmap-fit-width",
+        version = as.character(utils::packageVersion("VizModules")),
+        src = "src",
+        package = "VizModules",
+        script = "heatmapFitWidth.js"
+    )
+}
+
+
+#' Make a heatmap output panel fit its container's width
+#'
+#' Appends the call that rescales the widget once the page is ready, plus the
+#' dependency backing it.
+#'
+#' @param ui The UI object returned by the InteractiveComplexHeatmap output
+#'   function.
+#' @param id The heatmap id, i.e. `ns("Heatmap")`.
+#' @param scope One of `"widget"` (the combined widget), `"main"`, or `"sub"`;
+#'   picks the element whose natural width is measured against its container.
+#' @param panels Character vector of panel suffixes to scale, e.g. `"heatmap"`.
+#' @param output Logical; also scale the click/brush info panel.
+#' @param enable Logical; when `FALSE`, `ui` is returned untouched.
+#'
+#' @return `ui`, with the fitting script and dependency attached.
+#'
+#' @import shiny
+#' @importFrom htmltools attachDependencies
+#' @importFrom jsonlite toJSON
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_fit_width
+#' @keywords internal
+.heatmap_fit_width <- function(ui, id, scope, panels, output = FALSE, enable = TRUE) {
+    if (!isTRUE(enable)) {
+        return(ui)
+    }
+
+    hid <- .heatmap_widget_id(id)
+    root <- switch(scope,
+        widget = paste0(".", hid, "_widget"),
+        main = paste0("#", hid, "_heatmap_group"),
+        sub = paste0("#", hid, "_sub_heatmap_group")
+    )
+
+    config <- list(id = hid, root = root, panels = as.list(panels), output = output)
+    script <- tags$script(HTML(sprintf(
+        "VizModules.heatmapFitWidth(%s);",
+        toJSON(config, auto_unbox = TRUE)
+    )))
+
+    attachDependencies(
+        tagList(ui, script),
+        .heatmap_fit_width_dependency(),
+        append = TRUE
+    )
+}
+
+
+#' HTML dependency for the floating info panel script
+#'
+#' Ships the script that re-parks \pkg{InteractiveComplexHeatmap}'s floating
+#' click/brush info panel so it stops widening the host page.
+#'
+#' @return An `htmltools::htmlDependency` object.
+#'
+#' @importFrom htmltools htmlDependency
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_float_output_dependency
+#' @keywords internal
+.heatmap_float_output_dependency <- function() {
+    htmlDependency(
+        name = "vizmodules-heatmap-float-output",
+        version = as.character(utils::packageVersion("VizModules")),
+        src = "src",
+        package = "VizModules",
+        script = "heatmapFloatOutput.js"
+    )
+}
+
+
+#' Keep a floating info panel from widening the page it sits on
+#'
+#' With `output_ui_float = TRUE` (which `compact = TRUE` implies),
+#' \pkg{InteractiveComplexHeatmap} detaches the click/brush info panel onto
+#' `<body>` and parks it at `right: -10000px` whenever it is idle. That box
+#' extends the *document's* scrollable width by ~10,000px, on every page of the
+#' app rather than only the one holding the heatmap. Appends the call that
+#' re-parks it to the left instead, where it contributes no overflow.
+#'
+#' @param ui The UI object returned by the InteractiveComplexHeatmap output
+#'   function.
+#' @param id The heatmap id, i.e. `ns("Heatmap")`.
+#' @param enable Logical; when `FALSE` (a non-floating panel), `ui` is returned
+#'   untouched.
+#'
+#' @return `ui`, with the re-parking script and dependency attached.
+#'
+#' @import shiny
+#' @importFrom htmltools attachDependencies
+#' @importFrom jsonlite toJSON
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_float_output
+#' @keywords internal
+.heatmap_float_output <- function(ui, id, enable = TRUE) {
+    if (!isTRUE(enable)) {
+        return(ui)
+    }
+
+    config <- list(id = .heatmap_widget_id(id))
+    script <- tags$script(HTML(sprintf(
+        "VizModules.heatmapFloatOutput(%s);",
+        toJSON(config, auto_unbox = TRUE)
+    )))
+
+    attachDependencies(
+        tagList(ui, script),
+        .heatmap_float_output_dependency(),
+        append = TRUE
     )
 }

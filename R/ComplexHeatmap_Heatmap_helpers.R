@@ -230,6 +230,11 @@
         return(list())
     }
 
+    row_names <- names(rows)
+    if (is.null(row_names) || any(!nzchar(row_names))) {
+        row_names <- paste0("row", seq_along(rows))
+    }
+
     out <- lapply(rows, function(r) {
         col <- r$column
         if (is.null(col) || !nzchar(col) || !col %in% names(df)) {
@@ -246,7 +251,7 @@
             list(column = col, numeric = FALSE, levels = levels)
         }
     })
-    names(out) <- names(rows)
+    names(out) <- row_names
     Filter(Negate(is.null), out)
 }
 
@@ -482,6 +487,11 @@
     which <- match.arg(which)
     if (is.null(rows) || length(rows) == 0 || is.null(source_df) || length(key_values) == 0) {
         return(NULL)
+    }
+
+    row_names <- names(rows)
+    if (is.null(row_names) || any(!nzchar(row_names))) {
+        names(rows) <- paste0("row", seq_along(rows))
     }
 
     # A row annotation's name is drawn above or below it, a column annotation's
