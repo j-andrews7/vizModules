@@ -58,7 +58,22 @@
         }
         # An NA would otherwise drop out of the slice labelling entirely; make
         # it an explicit group so those rows stay visible and accounted for.
+        #
+        # A factor keeps its level order, which is how a caller says what order
+        # the slices should come out in (model families by ID rather than
+        # alphabetically, say). Coercing to character here would throw that away
+        # and leave ComplexHeatmap to sort the groups itself. droplevels() first:
+        # a level no surviving row uses would ask for an empty slice, which
+        # ComplexHeatmap rejects.
         sv[] <- lapply(sv, function(x) {
+            if (is.factor(x)) {
+                x <- droplevels(x)
+                if (anyNA(x)) {
+                    x <- factor(x, levels = c(levels(x), "NA"))
+                    x[is.na(x)] <- "NA"
+                }
+                return(x)
+            }
             x <- as.character(x)
             x[is.na(x)] <- "NA"
             x
@@ -468,10 +483,12 @@
 #'   [.heatmap_annotation_widget_id()].
 #'
 #' Each row may also carry `label_side` and `label_size`, controlling where that
-#' track's own name is drawn and at what font size. `annotation_name_side` and
-#' `annotation_name_gp` are both vectorised per track by ComplexHeatmap, so these
-#' are collected in lockstep with the tracks actually added — a row skipped for an
-#' unusable or duplicate column must not shift the labels of the rows after it.
+#' track's own name is drawn and at what font size, and `show_legend`, controlling
+#' whether that track contributes a legend (absent means show it).
+#' `annotation_name_side`, `annotation_name_gp` and `show_legend` are all vectorised
+#' per track by ComplexHeatmap, so these are collected in lockstep with the tracks
+#' actually added — a row skipped for an unusable or duplicate column must not shift
+#' the labels or legends of the rows after it.
 #' Valid sides differ by axis: a row annotation's name goes `"top"`/`"bottom"`, a
 #' column annotation's `"left"`/`"right"`; the wrong one is an error from
 #' ComplexHeatmap, so anything unrecognised falls back to that axis's default.
@@ -503,6 +520,7 @@
     col_list <- list()
     name_sides <- character(0)
     name_sizes <- numeric(0)
+    legend_flags <- logical(0)
     for (row_name in names(rows)) {
         r <- rows[[row_name]]
         col <- r$column
@@ -530,6 +548,11 @@
 
         size <- suppressWarnings(as.numeric(r$label_size %||% NA))
         name_sizes <- c(name_sizes, if (length(size) == 1L && !is.na(size) && size > 0) size else 10)
+
+        # Absent (an older `defaults` entry, or a row the client has not
+        # reported yet) means show it, matching ComplexHeatmap's own default.
+        show <- r$show_legend
+        legend_flags <- c(legend_flags, is.null(show) || isTRUE(as.logical(show)[1L]))
     }
 
     if (length(values_list) == 0) {
@@ -543,7 +566,8 @@
         df = ann_df,
         col = col_list,
         annotation_name_side = name_sides,
-        annotation_name_gp = grid::gpar(fontsize = name_sizes)
+        annotation_name_gp = grid::gpar(fontsize = name_sizes),
+        show_legend = stats::setNames(legend_flags, names(values_list))
     )
 
     if (which == "row") {

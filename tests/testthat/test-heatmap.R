@@ -241,6 +241,46 @@ test_that(".heatmap_build_annotation builds a rowAnnotation/columnAnnotation obj
     expect_no_error(ComplexHeatmap::draw(ht))
 })
 
+test_that(".heatmap_build_annotation carries each row's show_legend through per track", {
+    df <- data.frame(gene = c("g1", "g2", "g3"), pathway = c("A", "B", "A"), score = c(1, 2, 3))
+
+    ann <- .heatmap_build_annotation(
+        list(
+            r = list(column = "pathway", side = "Left", show_legend = FALSE),
+            s = list(column = "score", side = "Left", show_legend = TRUE)
+        ),
+        df, c("g1", "g2", "g3"), key_col = NULL, which = "row", color_lookup = .test_color_lookup
+    )
+    expect_equal(unname(ann@anno_list$pathway@show_legend), FALSE)
+    expect_equal(unname(ann@anno_list$score@show_legend), TRUE)
+})
+
+test_that(".heatmap_build_annotation shows a legend for a row predating show_legend", {
+    df <- data.frame(gene = c("g1", "g2", "g3"), pathway = c("A", "B", "A"))
+
+    ann <- .heatmap_build_annotation(
+        list(r = list(column = "pathway", side = "Left")),
+        df, c("g1", "g2", "g3"), key_col = NULL, which = "row", color_lookup = .test_color_lookup
+    )
+    expect_equal(unname(ann@anno_list$pathway@show_legend), TRUE)
+})
+
+test_that(".heatmap_build_annotation keeps show_legend aligned when a row is skipped", {
+    df <- data.frame(gene = c("g1", "g2", "g3"), pathway = c("A", "B", "A"), score = c(1, 2, 3))
+
+    # The unusable middle row must not shift `score`'s flag onto `pathway`.
+    ann <- .heatmap_build_annotation(
+        list(
+            r = list(column = "pathway", side = "Left", show_legend = TRUE),
+            skipped = list(column = "not_a_column", side = "Left", show_legend = FALSE),
+            s = list(column = "score", side = "Left", show_legend = FALSE)
+        ),
+        df, c("g1", "g2", "g3"), key_col = NULL, which = "row", color_lookup = .test_color_lookup
+    )
+    expect_equal(unname(ann@anno_list$pathway@show_legend), TRUE)
+    expect_equal(unname(ann@anno_list$score@show_legend), FALSE)
+})
+
 test_that(".heatmap_build_annotation, filtered by side, builds independent left/right annotations", {
     skip_if_not_installed("ComplexHeatmap")
     skip_if_not_installed("circlize")
@@ -317,6 +357,36 @@ test_that(".heatmap_resolve_split makes NA an explicit annotation slice", {
     res <- .heatmap_resolve_split("Annotation", NA, 4, sv)
 
     expect_equal(res$split$g, c("A", "NA", "B", "NA"))
+})
+
+test_that(".heatmap_resolve_split keeps a factor's level order for the slice order", {
+    # Alphabetically these sort SJ10, SJ115, SJ2; the caller's level order is
+    # the point, so it has to survive.
+    sv <- data.frame(g = factor(
+        c("SJ2", "SJ115", "SJ10", "SJ2"), levels = c("SJ2", "SJ10", "SJ115")
+    ))
+    res <- .heatmap_resolve_split("Annotation", NA, 4, sv)
+
+    expect_s3_class(res$split$g, "factor")
+    expect_equal(levels(res$split$g), c("SJ2", "SJ10", "SJ115"))
+})
+
+test_that(".heatmap_resolve_split drops unused factor levels, which would be empty slices", {
+    sv <- data.frame(g = factor(
+        c("A", "B", "A", "B"), levels = c("A", "B", "never_used")
+    ))
+    res <- .heatmap_resolve_split("Annotation", NA, 4, sv)
+
+    expect_equal(levels(res$split$g), c("A", "B"))
+})
+
+test_that(".heatmap_resolve_split still groups NA when the column is a factor", {
+    sv <- data.frame(g = factor(c("A", NA, "B", NA), levels = c("B", "A")))
+    res <- .heatmap_resolve_split("Annotation", NA, 4, sv)
+
+    expect_equal(as.character(res$split$g), c("A", "NA", "B", "NA"))
+    # The caller's order is kept, with the NA group appended rather than sorted in.
+    expect_equal(levels(res$split$g), c("B", "A", "NA"))
 })
 
 test_that(".heatmap_resolve_split falls back to no split for unusable annotation values", {
@@ -934,4 +1004,69 @@ test_that("the heatmap output UIs fit their container's width unless told not to
     )) {
         expect_false(grepl("heatmapFitWidth", as.character(off), fixed = TRUE))
     }
+})
+
+test_that(".heatmap_widget_id matches the key InteractiveComplexHeatmap registers under", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+    skip_if_not_installed("ComplexHeatmap")
+
+    # The module server looks the registered heatmap up before calling
+    # makeInteractiveComplexHeatmap(). InteractiveComplexHeatmap keys that
+    # registry by validate_heatmap_id(), which rewrites every non-word character
+    # to "_", so a raw namespaced id never matches and the heatmap is silently
+    # never drawn. These two normalisations have to agree.
+    for (id in c("mod-Heatmap", "outer-inner-Heatmap", "plain_id", "1leading")) {
+        expect_identical(
+            .heatmap_widget_id(id),
+            getFromNamespace("validate_heatmap_id", "InteractiveComplexHeatmap")(id)
+        )
+    }
+})
+
+test_that("a namespaced heatmap is findable in the registry via .heatmap_widget_id", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+    skip_if_not_installed("ComplexHeatmap")
+
+    h_id <- shiny::NS(shiny::NS("methyl_concordance")("pair_heatmap"))("Heatmap")
+    invisible(InteractiveComplexHeatmap::originalHeatmapOutput(h_id))
+    registry <- getFromNamespace("shiny_env", "InteractiveComplexHeatmap")$heatmap
+
+    expect_false(is.null(registry[[.heatmap_widget_id(h_id)]]))
+    # The bug: the raw id is not a key, so the module server's guard returned early.
+    expect_null(registry[[h_id]])
+})
+
+test_that("heatmap_fit_width attaches the fit script to a hand-built widget", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+
+    ui <- heatmap_fit_width(
+        InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(
+            heatmap_id = "ovw_modality_ht", width1 = 1480, height1 = 500
+        ),
+        heatmap_id = "ovw_modality_ht"
+    )
+    rendered <- htmltools::renderTags(ui)
+    html <- as.character(rendered$html)
+
+    # The root is the class InteractiveComplexHeatmapOutput() puts on the widget,
+    # so the script measures the thing that is actually on the page.
+    expect_true(grepl(
+        '"root":".ovw_modality_ht_widget"', html, fixed = TRUE
+    ))
+    expect_true(grepl('"panels":["heatmap","sub_heatmap"]', html, fixed = TRUE))
+    expect_true(grepl('"output":true', html, fixed = TRUE))
+    expect_true(grepl("ovw_modality_ht_widget", html, fixed = TRUE))
+    expect_true("vizmodules-heatmap-fit-width" %in%
+        vapply(rendered$dependencies, function(d) d$name, character(1)))
+})
+
+test_that("heatmap_fit_width honours a narrowed panel set", {
+    skip_if_not_installed("InteractiveComplexHeatmap")
+
+    html <- as.character(heatmap_fit_width(
+        InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(heatmap_id = "ht"),
+        heatmap_id = "ht", panels = "heatmap", output = FALSE
+    ))
+    expect_true(grepl('"panels":["heatmap"]', html, fixed = TRUE))
+    expect_true(grepl('"output":false', html, fixed = TRUE))
 })

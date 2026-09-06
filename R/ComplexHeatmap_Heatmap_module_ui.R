@@ -77,18 +77,22 @@
 #'   passed as `left_annotation`/`right_annotation` per row (UI: "Annotations" tab, "Row
 #'   Annotations" [multiDynamicInput()] — each row picks a `matrix` column, a side (Left or
 #'   Right), and the side and font size of that track's own name label (Bottom or Top, since
-#'   ComplexHeatmap places a row annotation's name above or below it); default: none). Each
+#'   ComplexHeatmap places a row annotation's name above or below it), and whether that track
+#'   contributes a legend ("Show Legend", default `TRUE`); default: none). Each
 #'   row's color control appears just below the list once a column is picked: numeric columns
 #'   get Low/Mid/High color pickers, everything else gets a [multiColorPicker()] with one color
-#'   per level.
+#'   per level. Seed those colors from `defaults` with a named color vector keyed by the
+#'   annotation's *column name* — the row names in a `row_annotations`/`column_annotations`
+#'   default are not stable, since the client reports rows back as `row1`, `row2`, ...
 #' - `column_key` - Column in `column_annotations` matched against the matrix's selected
 #'   column names (UI: "Annotations" tab, "Column Key"; only shown when `data` supplies a
 #'   `column_annotations` table)
 #' - `column_annotations` - Column annotation tracks, built as
 #'   [ComplexHeatmap::columnAnnotation()] and passed as `top_annotation`/`bottom_annotation` per
 #'   row (UI: "Annotations" tab, "Column Annotations" [multiDynamicInput()] — each row picks a
-#'   column, a side (Top or Bottom), and the side and font size of that track's own name label
-#'   (Right or Left, since ComplexHeatmap places a column annotation's name beside it), with the
+#'   column, a side (Top or Bottom), the side and font size of that track's own name label
+#'   (Right or Left, since ComplexHeatmap places a column annotation's name beside it), and
+#'   whether that track contributes a legend ("Show Legend", default `TRUE`), with the
 #'   same per-row color controls as row annotations; only shown when `data` supplies a
 #'   `column_annotations` table; default: none)
 #'
@@ -471,6 +475,9 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
                         )),
                         label_size = list(type = "numeric", args = list(
                             label = "Label Size", value = 10, min = 1, step = 0.5
+                        )),
+                        show_legend = list(type = "checkbox", args = list(
+                            label = "Show Legend", value = TRUE
                         ))
                     ),
                     elements = get_default(defaults, "row_annotations", NULL),
@@ -496,6 +503,9 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
                             )),
                             label_size = list(type = "numeric", args = list(
                                 label = "Label Size", value = 10, min = 1, step = 0.5
+                            )),
+                            show_legend = list(type = "checkbox", args = list(
+                                label = "Show Legend", value = TRUE
                             ))
                         ),
                         elements = get_default(defaults, "column_annotations", NULL),
@@ -873,6 +883,61 @@ ComplexHeatmap_HeatmapInfoOutputUI <- function(id, title = NULL, width = 400, ..
         tagList(ui, script),
         .heatmap_fit_width_dependency(),
         append = TRUE
+    )
+}
+
+
+#' Fit a hand-built InteractiveComplexHeatmap widget to its container's width
+#'
+#' The heatmap module's output functions already do this (see their `fit.width`
+#' argument). This is the same behaviour for an app that calls
+#' [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()] itself rather
+#' than going through the module — a heatmap driven directly by
+#' [InteractiveComplexHeatmap::makeInteractiveComplexHeatmap()], say.
+#'
+#' `InteractiveComplexHeatmapOutput()` bakes its `width1`/`width2` into the page
+#' as fixed pixels, so the widget over- or under-fills whatever room the app
+#' actually gives it until the resize handle is dragged. Wrapping the output in
+#' this rescales the panels to their container once the page is laid out; the
+#' widget's own resize controls still win afterwards.
+#'
+#' A widget on a tab that is not the active one has no width to measure on load.
+#' It is fitted when its container is first laid out instead, so a heatmap the
+#' user has not opened yet is still correct the moment they do.
+#'
+#' @param ui The UI returned by
+#'   [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()] (or the
+#'   `originalHeatmapOutput()`/`subHeatmapOutput()` pair).
+#' @param heatmap_id The `heatmap_id` passed to that output function.
+#' @param panels Character vector of panels to scale. Defaults to both; pass
+#'   just `"heatmap"` for a `compact = TRUE` widget, which has no sub-heatmap.
+#' @param output Logical; also scale the click/brush info panel. Defaults to
+#'   `TRUE`, matching what [ComplexHeatmap_HeatmapOutputUI()] does for the same
+#'   combined widget; pass `FALSE` when the app lays that panel out itself.
+#'
+#' @return `ui`, with the fitting script and its dependency attached.
+#'
+#' @seealso [ComplexHeatmap_HeatmapOutputUI()], whose `fit.width` argument is
+#'   the module-side equivalent.
+#'
+#' @examples
+#' if (interactive() && requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
+#'     heatmap_fit_width(
+#'         InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(
+#'             heatmap_id = "my_ht", width1 = 1480, height1 = 500
+#'         ),
+#'         heatmap_id = "my_ht"
+#'     )
+#' }
+#'
+#' @author Jared Andrews
+#' @export
+heatmap_fit_width <- function(ui, heatmap_id,
+                              panels = c("heatmap", "sub_heatmap"),
+                              output = TRUE) {
+    .heatmap_fit_width(
+        ui, heatmap_id,
+        scope = "widget", panels = panels, output = output
     )
 }
 

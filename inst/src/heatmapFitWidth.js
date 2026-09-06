@@ -11,6 +11,11 @@
 // register the heatmap (makeInteractiveComplexHeatmap() needs a client round
 // trip first), and rescales the panel widths to the space actually available.
 // The first image the server draws is then already the right width.
+//
+// A heatmap on a tab that is not the active one measures zero wide on load, so
+// there is nothing to scale against yet. Rather than giving up (which left every
+// heatmap outside the landing tab at its baked-in width until dragged), the fit
+// is retried when the container is first laid out, then stops watching.
 (function ($) {
     // The plotOutput sits inside a wrapper div that is 4px wider/taller than
     // it; ht-main.js hard-codes the same offset everywhere it resizes.
@@ -23,11 +28,10 @@
     function scalePanel(id, panel, scale) {
         var $plot = $("#" + id + "_" + panel);
         if (!$plot.length) {
-            return false;
+            return;
         }
 
         var width = Math.max(MIN_PANEL_WIDTH, Math.round($plot.width() * scale));
-        var alreadyDrawn = $plot.find("img").length > 0;
 
         $plot.width(width);
         $plot.find("img").width(width);
@@ -38,35 +42,67 @@
         // as ht-main.js does after a drag.
         $("#" + id + "_" + panel + "_input_width").val(width);
         $("#" + id + "_" + panel + "_download_image_width").val(width);
-
-        return alreadyDrawn;
     }
 
+    // Run `fn` once the Shiny session can actually take an input value. The
+    // socket is not necessarily open at DOM ready, and a setInputValue() made
+    // before it opens is dropped on the floor.
+    function whenShinyReady(fn) {
+        if (typeof Shiny === "undefined") {
+            return;
+        }
+        if (Shiny.shinyapp && Shiny.shinyapp.$socket) {
+            fn();
+        } else {
+            $(document).one("shiny:connected", fn);
+        }
+    }
+
+    // Tell the server the main panel's real size, through the same three inputs
+    // ht-main.js sets when the resize handle is dragged. InteractiveComplexHeatmap
+    // redraws on these, and so does any app that tracks the heatmap's geometry
+    // server-side -- mapping a cursor back to a cell needs positions measured at
+    // the size actually on screen, so a silent rescale would leave every later
+    // hover reading against a layout that no longer exists.
+    function notifyResize(cfg) {
+        if ($.inArray("heatmap", cfg.panels) === -1) {
+            return;
+        }
+        whenShinyReady(function () {
+            var $main = $("#" + cfg.id + "_heatmap");
+            if (!$main.length) {
+                return;
+            }
+            Shiny.setInputValue(cfg.id + "_heatmap_resize_width", $main.width());
+            Shiny.setInputValue(cfg.id + "_heatmap_resize_height", $main.height());
+            Shiny.setInputValue(cfg.id + "_heatmap_do_resize", Math.random());
+        });
+    }
+
+    // Returns true once the fit is settled (done, or close enough to leave
+    // alone), false while the widget still has no measurable width.
     function fitWidth(cfg) {
         var $root = $(cfg.root);
         if (!$root.length) {
-            return;
+            return false;
         }
 
         var root = $root[0];
         var container = root.parentNode;
         var available = container ? container.clientWidth : 0;
         var natural = root.scrollWidth;
+        // Not laid out yet -- an inactive tab, or a container still settling.
         if (!available || !natural) {
-            return;
+            return false;
         }
 
         var scale = available / natural;
         if (Math.abs(scale - 1) < MIN_SCALE_DELTA) {
-            return;
+            return true;
         }
 
-        var mainRedrawn = false;
         $.each(cfg.panels, function (i, panel) {
-            var alreadyDrawn = scalePanel(cfg.id, panel, scale);
-            if (panel === "heatmap" && alreadyDrawn) {
-                mainRedrawn = true;
-            }
+            scalePanel(cfg.id, panel, scale);
         });
 
         if (cfg.output) {
@@ -79,17 +115,31 @@
         // Shiny only recomputes an output's clientData size on window resize,
         // so the server would otherwise still see the old pixel width.
         $(window).trigger("resize");
+        notifyResize(cfg);
 
-        if (mainRedrawn && typeof Shiny !== "undefined") {
-            // The heatmap was already drawn (a re-created UI, say), so the
-            // stretched image needs a real redraw. Go through
-            // InteractiveComplexHeatmap's own resize protocol rather than
-            // registering a message handler, which would clobber its handlers.
-            var $main = $("#" + cfg.id + "_heatmap");
-            Shiny.setInputValue(cfg.id + "_heatmap_resize_width", $main.width());
-            Shiny.setInputValue(cfg.id + "_heatmap_resize_height", $main.height());
-            Shiny.setInputValue(cfg.id + "_heatmap_do_resize", Math.random());
+        return true;
+    }
+
+    // The widget measured zero wide, so it is not on screen yet. Watch its
+    // container and fit as soon as it has a width -- opening the tab that holds
+    // it, typically. One-shot: stop watching the moment the fit lands, so our
+    // own width changes cannot retrigger it.
+    function fitWhenVisible(cfg) {
+        var $root = $(cfg.root);
+        if (!$root.length || typeof ResizeObserver === "undefined") {
+            return;
         }
+        var container = $root[0].parentNode;
+        if (!container) {
+            return;
+        }
+
+        var observer = new ResizeObserver(function () {
+            if (fitWidth(cfg)) {
+                observer.disconnect();
+            }
+        });
+        observer.observe(container);
     }
 
     window.VizModules = window.VizModules || {};
@@ -103,7 +153,9 @@
             return;
         }
         $(function () {
-            fitWidth(cfg);
+            if (!fitWidth(cfg)) {
+                fitWhenVisible(cfg);
+            }
         });
     };
 })(window.jQuery);

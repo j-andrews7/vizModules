@@ -507,9 +507,16 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
         observeEvent(build_heatmap(), {
             h_id <- ns("Heatmap")
             # InteractiveComplexHeatmap requires the matching UI component to have been
-            # generated (which registers the heatmap in its environment).
+            # generated (which registers the heatmap in its environment). It keys that
+            # registry by validate_heatmap_id(), which is .heatmap_widget_id()'s
+            # normalisation -- so the namespaced id must be normalised before the lookup
+            # or `[[` misses on every module-hosted heatmap (every `-` in the namespace
+            # is an `_` in the key) and the widget is never made. Only the lookup needs
+            # it: makeInteractiveComplexHeatmap() normalises `heatmap_id` itself.
             if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE) ||
-                is.null(getFromNamespace("shiny_env", "InteractiveComplexHeatmap")$heatmap[[h_id]])) {
+                is.null(getFromNamespace("shiny_env", "InteractiveComplexHeatmap")$heatmap[[
+                    .heatmap_widget_id(h_id)
+                ]])) {
                 return()
             }
             InteractiveComplexHeatmap::makeInteractiveComplexHeatmap(
