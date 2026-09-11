@@ -145,6 +145,7 @@ reference:
       - ComplexHeatmap_HeatmapApp
       - ComplexHeatmap_HeatmapInputsUI
       - ComplexHeatmap_HeatmapOutputUI
+      - ComplexHeatmap_HeatmapStaticOutputUI
       - ComplexHeatmap_HeatmapServer
       - ComplexHeatmap_HeatmapMainOutputUI
       - ComplexHeatmap_HeatmapSubOutputUI

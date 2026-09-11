@@ -64,11 +64,13 @@ else — `system()`, `file.remove()`, `library()` — is rejected with a warning
 `safe_resolve_adj_fxn()` additionally allows only `log2`, `log`, `log10`, `neg_log10`,
 `log1p`, `as.factor`, `abs`, `sqrt`.
 
-## App and gallery
+## App, gallery and figure builder
 
 - [ ] `<module>App()` is a thin `createModuleApp()` wrapper — no duplicated import, filtering, or dataset-switching logic.
 - [ ] A sensible bundled example dataset as the default `data_list`.
 - [ ] The module added to `inst/apps/module-gallery/app.R` in its own tab with a small sample dataset.
+- [ ] The module added to `.figure_builder_registry()` in `R/figureBuilder_module_app.R` — a *second* registry, easily missed, with its own shape (`label`, `dataset`, the trio, `defaults`).
+- [ ] A module whose output is not plotly attaches a `vector_svg` attribute to the reactive its server returns, or its panels export as a bare label (see `ComplexHeatmap_HeatmapServer()` and `.draw_to_svg()`).
 - [ ] An example that uses the module **twice** to prove multi-instance behaviour; each instance holds independent state.
 
 ## Tests
