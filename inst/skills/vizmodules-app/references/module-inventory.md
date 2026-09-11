@@ -31,7 +31,10 @@ uniform across modules** — check the row before writing a key.
 | `dittoViz_freqPlot` | `dittoViz::freqPlot` | `var` `sample.by` `group.by` `color.by` `vars.use` `plots` `scale` `max.normalize` `y.min` `y.max` | `palette.colours` | **yes** |
 
 `ComplexHeatmap_Heatmap` is the odd one out: its output is **not** plotly. It renders
-through `InteractiveComplexHeatmap`, so plotly-specific advice does not apply to it. It's
+through `InteractiveComplexHeatmap`, so plotly-specific advice does not apply to it — or
+through `ComplexHeatmap_HeatmapStaticOutputUI()`, a plain `plotOutput()` of the same heatmap
+with none of the widget's border/control-strip/fixed-width chrome, which is what the Figure
+Builder uses. It's
 also the odd one out on colour — `low_color`/`mid_color`/`high_color` are plain scalar
 colour inputs for the value scale, not a `defaults` group-colour key like every other row's
 "Colour key" column means. `row_annotations`/`column_annotations` are `multiDynamicInput()`

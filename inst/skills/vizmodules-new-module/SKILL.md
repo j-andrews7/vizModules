@@ -81,7 +81,7 @@ unverified rather than chasing it.
 
 ## Finishing
 
-- Register the module in `inst/apps/module-gallery/app.R` (its own tab, small sample dataset).
+- Register the module in `inst/apps/module-gallery/app.R` (its own tab, small sample dataset) **and** in `.figure_builder_registry()` (`R/figureBuilder_module_app.R`) — two registries, different shapes.
 - Add `tests/testthat/test-<plot>.R`; cover a new plotting function directly, and the module with `testServer` where feasible.
 - Add the exports to `_pkgdown.yml` and an entry to `NEWS.md`.
 - Run `devtools::document()`, then `devtools::test()` and `devtools::check()`.

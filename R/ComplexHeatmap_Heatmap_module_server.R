@@ -493,6 +493,16 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             ComplexHeatmap::draw(ht)
         })
 
+        # Static counterpart to the InteractiveComplexHeatmap widget, backing
+        # ComplexHeatmap_HeatmapStaticOutputUI(). This one is a plain module
+        # output, so ns("HeatmapStatic") lines up without any of the root-scope
+        # handling makeInteractiveComplexHeatmap() needs below. Only one of the
+        # two output forms is ever in the UI for a given id, and the unused
+        # renderer simply never runs.
+        output$HeatmapStatic <- renderPlot({
+            ComplexHeatmap::draw(build_heatmap())
+        })
+
         # makeInteractiveComplexHeatmap() uses `heatmap_id` verbatim as the
         # output slot name and in session/input message keys (see the package
         # source: output[[qq("@{heatmap_id}_heatmap")]], input[[qq(...)]],
@@ -635,6 +645,28 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             data_list = plot_source_reactive,
             filename_base = "ComplexHeatmap_source"
         )
+
+        # Vector export hook for the Figure Builder (see figureBuilderServer()).
+        # This module's output is not a plotly graph, so the canvas export has
+        # nothing to pull an SVG out of client-side. Redrawing the same
+        # HeatmapList onto an SVG device at the panel's size gives the exported
+        # figure real vector art instead of a hole where the heatmap was. The
+        # ids are namespaced per widget so two heatmap panels in one figure
+        # cannot claim each other's clip paths. `res` matches what renderPlot()
+        # drew the panel at, so the legends and labels -- which ComplexHeatmap
+        # sizes in absolute points -- keep the same share of the canvas they
+        # have on screen instead of crowding the cells out. See .draw_to_svg().
+        attr(plot_source_reactive, "vector_svg") <- function(width, height, res = 72) {
+            ht <- build_heatmap()
+            if (is.null(ht)) {
+                return(NULL)
+            }
+            .draw_to_svg(
+                function() ComplexHeatmap::draw(ht),
+                width = width, height = height, res = res,
+                id_prefix = .heatmap_widget_id(ns("Heatmap"))
+            )
+        }
 
         return(plot_source_reactive)
     })

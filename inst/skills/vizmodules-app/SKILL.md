@@ -76,6 +76,15 @@ the heatmap, the sub-heatmap, and the click/brush info panel separately;
 `ComplexHeatmap_HeatmapOutputUI()` passes `...` through to
 `InteractiveComplexHeatmapOutput()` (`layout`, `compact`, …).
 
+`ComplexHeatmap_HeatmapStaticOutputUI()` is the fourth option: a plain `plotOutput()` of the
+same heatmap, backed by the same server call. Use it wherever the widget's chrome is in the
+way — `InteractiveComplexHeatmap` puts a grey border around its heatmap panel, a control tab
+strip beneath it, and a fixed pixel width on the whole thing, and no argument turns any of
+that off (`compact = TRUE` only drops the sub-heatmap). It fills its container, honours
+`resizable`, and needs `ComplexHeatmap` but not `InteractiveComplexHeatmap`. The cost is the
+interactivity: no cell hover/click, no sub-heatmap, no brush info panel. It is what the
+Figure Builder uses.
+
 **`dittoViz_freqPlot`** — it plots a **computed summary**, not columns of the input. It
 tabulates how often each level of `var` occurs within each `sample.by` value, one facet per
 level. So `y.min`/`y.max`, the Stats tab, the point annotations (points are samples), and
