@@ -340,7 +340,7 @@ Generative AI tools (GitHub Copilot, ChatGPT, Claude, Gemini, Cursor, etc.) are 
 
 ### Agent Skills (GitHub Copilot, OpenAI Codex, Claude Code, and compatible tools)
 
-The package ships three [Agent Skills](https://agentskills.io) that give an agent the
+The package provides three [Agent Skills](https://agentskills.io) that give an agent the
 package's conventions without it having to read the vignettes first. Install them into a
 project with:
 
@@ -357,7 +357,7 @@ more than once with different `client` values to install into several locations 
 column-mapping keys (`x.data` vs `x.by` vs `x.value` vs `var`), colour key, tab names,
 and stats keys, which is what an agent otherwise spends its budget grepping for.
 
-In rough benchmarking, `vizmodules-app` saves 40-60% of token usage versus just chucking an agent at the docs/repo/prompt below and generates a functional app in about half the time. The other skills show more variable and modest savings (~10-20% fewer tokens), but they tend to avoid common pitfalls and better utilize some of the more advanced features. Skills are difficult to benchmark, as the benefits are context-dependent and vary with the request.
+In rough benchmarking, `vizmodules-app` saves ~40-60% of token usage versus just chucking an agent at the docs/repo/prompt below and generates a functional app in about half the time. The other skills show more variable and modest savings (~10-20% fewer tokens), but they tend to avoid common pitfalls and better utilize some of the more advanced features. Skills are difficult to benchmark, as the benefits are context-dependent and vary with the request.
 
 For tools that cannot read local skill files, the prompt below does the same job less
 efficiently.

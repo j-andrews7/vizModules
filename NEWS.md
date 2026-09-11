@@ -1,3 +1,34 @@
+# VizModules 0.5.0.9000
+
+The one where we make the heatmap module not suck.
+
+## Improved/New Functionality
+
+* `createModuleApp()` now accepts a `data_list` entry that is a *list* of data frames rather than a single one, filtering and displaying only the primary table (`primary.table`, defaulting to the first) and passing companions through to the module untouched. Also gains `sidebar.width` for modules whose output needs more room. `ComplexHeatmap_HeatmapApp()` is a thin wrapper around it again, rather than a bespoke app.
+* The `ComplexHeatmap` module's row and column split methods gained an **"Annotation"** option (#349), grouping rows or columns by the values of one or more annotation columns instead of by a derived clustering. Several columns give nested slices; pairing it with clustering off is also the fast path, since no distance matrix is needed.
+* The `ComplexHeatmap` module gained a **Filter** tab with expression-based row and column filters (#346), so a specific set of features or samples can be plotted without the `dataFilter` module. Row filters see the matrix data frame; column filters see a synthetic `column` field plus any per-sample metadata joined via `column_key`. Filtering runs before everything else, so scaling, annotations, splits, and the source download all describe the filtered matrix.
+  * Both `ComplexHeatmap` filter inputs are debounced by 700ms, so typing an expression does not redraw the heatmap once per keystroke. The "Adding a New Module" and "Building Custom Modules" vignettes document the pattern for free-text inputs generally.
+* Each `ComplexHeatmap` annotation track gained its own **Label Side** and **Label Size** controls, and a **Show Legend** checkbox suppressing just that track's legend (default on). Set it from `defaults` with a `show_legend` field on the `row_annotations`/`column_annotations` row.
+* The `ComplexHeatmap` module's row and column **"Annotation"** splits now honour a factor column's level order, so a caller can choose the order the slices come out in (model families by ID rather than alphabetically, say) rather than having ComplexHeatmap sort the groups itself. Unused levels are dropped, since an empty slice is an error.
+* The `ComplexHeatmap` output UI functions gained `fit.width` (default `TRUE`), scaling the widget's panels to their container's width on load (#350) rather than sitting at `InteractiveComplexHeatmap`'s fixed pixel widths until the resize handle is dragged. `width`/`width1`/`width2` become relative sizes; heights are untouched and the widget's own resize controls still win afterwards. Pass `fit.width = FALSE` for the old fixed-width behaviour.
+* Added `heatmap_fit_width()`, the `fit.width` behaviour above as a standalone wrapper, for apps that call `InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()` directly rather than going through the module.
+* `ComplexHeatmap_HeatmapApp()` now opens on `example_heatmap_matrix` paired with `example_heatmap_column_data`, so the column annotation, split, and filter features are usable out of the box.
+* `safe_eval_filter()` and `validate_expression()` gained a wider shared vocabulary: `grepl`, `startsWith`, `endsWith`, `substr`, `nchar`, `toupper`, `tolower`, `trimws`, `abs`, `round`, and `xor`. All are pure, so the sandbox is unchanged. The two functions previously carried duplicate copies of the allowlist and AST walker and now share one.
+
+## Bug Fixes
+
+* Fixed a multi-select dropping a deselection made from its value tags. `viz_select_input()` reports on dropdown close for multi-selects, but removing a value via a tag's x (or the clear-all x) never opens the dropdown, so the change was silently never sent: the control showed the value gone while the server kept the old selection. Affected every multi-select in the package; most visible on the heatmap's annotation split, where removing a column left the old slices in place.
+* Fixed default annotations in the `ComplexHeatmap` module failing to render their color pickers and annotation tracks on load. Initial rows in `multiDynamicInput()` are now reported to Shiny during initialization before deferred DOM binding, omitted fields backfill from `row_spec`, and the module server resolves palettes immediately and disables output suspension for annotation color controls.
+* Fixed every module-hosted `ComplexHeatmap` heatmap silently never drawing. `InteractiveComplexHeatmap` keys its registry by `validate_heatmap_id()`, which rewrites each non-word character to `_`, so the guard added alongside the annotation fix above looked up the raw namespaced id (`mymod-heatmap-Heatmap`) against a key stored as `mymod_heatmap_Heatmap`, found nothing, and returned before `makeInteractiveComplexHeatmap()` could run. Every `ComplexHeatmap_HeatmapServer()` instance was affected, since a module id always contains a `-`; the widget rendered its empty shell with no error or warning.
+* Fixed the `ComplexHeatmap` module's `compact = TRUE` widget (and any use of `output_ui_float = TRUE`) adding a ~10,000px horizontal scrollbar to the host app. `InteractiveComplexHeatmap` detaches the floating click/brush info panel onto `<body>` and parks it at `right: -10000px` while idle, which extends the *document's* scrollable width -- on every page of the app, not just the one holding the heatmap -- and scrolling right revealed the parked panel stuck on "Retrieving from server... Don't move mouse.". The panel is now re-parked to the left, where it contributes no overflow, leaving the floating behaviour otherwise untouched.
+
+## Documentation
+
+* Added the `ComplexHeatmap_Heatmap` module and `dittoViz_freqPlot` to the README (#348). 
+* Refreshed the skills for the 0.4.0 changes they had not picked up (#348).
+* The `quick-start`, `custom-modules`, and `adding-a-new-module` vignettes now point at the bundled agent skill that covers their material and at `use_vizmodules_skills()` (#347). Previously the skills were documented only in the README, so a reader of the vignettes had no idea one existed for what they were doing.
+
+
 # VizModules 0.4.0
 
 ## New Modules
