@@ -1,4 +1,4 @@
-# Copilot Instructions for VizModules
+# Agent Instructions for VizModules
 
 ## Repository Overview
 
