@@ -42,6 +42,15 @@
   const readValue = (el) => {
     const prefix = el.dataset.rowPrefix || "row";
     const rows = el.querySelectorAll(".mdi-rows > .mdi-row");
+    if (rows.length === 0 && !el._mdiMounted) {
+      const data = getData(el);
+      if ((data.initial || []).length) {
+        return {
+          _prefix: prefix,
+          rows: data.initial
+        };
+      }
+    }
     return {
       _prefix: prefix,
       rows: Array.prototype.map.call(rows, (row) => {
@@ -89,10 +98,12 @@
       if (!fieldEl) return;
       const target = fieldEl.querySelector("input, select, textarea");
       if (!target) return;
-      if (target.type === "checkbox") {
-        target.checked = !!f.value;
-      } else {
-        target.value = f.value;
+      if (f.value !== undefined && f.value !== null) {
+        if (target.type === "checkbox") {
+          target.checked = !!f.value;
+        } else {
+          target.value = f.value;
+        }
       }
       // Colour inputs are initialized by the colourpicker binding, which reads
       // the starting colour from the `data-init-value` attribute rather than the
@@ -164,6 +175,7 @@
   };
 
   const addRow = (el, fields, callback) => {
+    el._mdiMounted = true;
     const data = getData(el);
     data.counter += 1;
     const row = buildRow(el, data.counter);
@@ -187,6 +199,7 @@
   };
 
   const clearRows = (el, callback) => {
+    el._mdiMounted = true;
     const container = rowsContainer(el);
     Array.prototype.slice.call(container.querySelectorAll(".mdi-row"))
       .forEach((row) => {
@@ -197,6 +210,7 @@
   };
 
   const setValue = (el, rows, callback) => {
+    el._mdiMounted = true;
     clearRows(el, null);
     (rows || []).forEach((r) => addRow(el, r.fields, null));
     if (callback) callback();
@@ -221,7 +235,14 @@
         if ((data.initial || []).length) {
           setTimeout(function () {
             data.initial.forEach((r) => addRow(el, r.fields, null));
+            el._mdiMounted = true;
+            Shiny.setInputValue(
+              el.id + ":VizModules.multiDynamicInput",
+              readValue(el)
+            );
           }, 0);
+        } else {
+          el._mdiMounted = true;
         }
       },
       getValue: function (el) {
