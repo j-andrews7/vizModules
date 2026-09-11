@@ -90,18 +90,81 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             })
         }
 
-        # Convert the incoming data frame to a numeric matrix per the selected
-        # columns, applying the optional row-name column. Surfaces friendly
-        # validation messages on bad input.
-        heatmap_matrix <- reactive({
-            df <- matrix_data()
-            req(df)
+        # The two filters are free-text, and a textInput reports on every
+        # keystroke -- so an undebounced read would redraw the heatmap once per
+        # character, on half-typed expressions that are mostly invalid anyway.
+        # Drawing a heatmap is expensive (it is rendered to a device and
+        # measured), so this is far more costly here than for a cheap plotly
+        # figure. Debouncing collapses a burst of typing into one redraw once
+        # the user pauses. Select and numeric inputs report discrete choices
+        # and need no such treatment.
+        #
+        # debounce() emits its initial value immediately and then holds the
+        # previous value while typing, so startup is unaffected; and if it ever
+        # did yield NULL, .heatmap_apply_filter() reads that as "no filter",
+        # which is the right fallback.
+        filter_debounce_ms <- 700
+        row_filter_text <- debounce(reactive(input$row_filter), filter_debounce_ms)
+        column_filter_text <- debounce(reactive(input$column_filter), filter_debounce_ms)
 
+        # The frame a Column Filter expression is evaluated against: one row per
+        # selected matrix column, carrying the column name plus any per-sample
+        # metadata. See .heatmap_column_meta().
+        column_meta <- reactive({
+            .heatmap_column_meta(column_data(), input$column_key, input$matrix.cols)
+        })
+
+        # Matrix columns surviving the Column Filter, in matrix order.
+        filtered_cols <- reactive({
             cols <- input$matrix.cols
             validate(need(
                 !is.null(cols) && length(cols) >= 1,
                 "Select at least one numeric column for the matrix."
             ))
+
+            res <- .heatmap_apply_filter(column_filter_text(), column_meta(), length(cols))
+            validate(need(
+                !identical(res$status, "invalid"),
+                paste(
+                    "Column Filter is not a valid expression over:",
+                    paste(names(column_meta()), collapse = ", ")
+                )
+            ))
+            out <- cols[res$keep]
+            validate(need(length(out) >= 1, "No matrix columns match the Column Filter."))
+            out
+        })
+
+        # matrix_data() narrowed by the Row Filter. Everything that reads
+        # annotation values off the matrix data frame must go through this
+        # rather than matrix_data(): row annotations align *positionally* with
+        # the matrix rows, so a filter that shifts the rows out from under them
+        # would silently relabel every track. See build_heatmap() below.
+        filtered_matrix_data <- reactive({
+            df <- matrix_data()
+            req(df)
+
+            res <- .heatmap_apply_filter(row_filter_text(), df, nrow(df))
+            validate(need(
+                !identical(res$status, "invalid"),
+                paste(
+                    "Row Filter is not a valid expression over:",
+                    paste(names(df), collapse = ", ")
+                )
+            ))
+            out <- df[res$keep, , drop = FALSE]
+            validate(need(nrow(out) >= 1, "No rows match the Row Filter."))
+            out
+        })
+
+        # Convert the incoming data frame to a numeric matrix per the selected
+        # (and filtered) columns, applying the optional row-name column.
+        # Surfaces friendly validation messages on bad input.
+        heatmap_matrix <- reactive({
+            df <- filtered_matrix_data()
+            req(df)
+
+            cols <- filtered_cols()
             validate(need(
                 all(cols %in% names(df)),
                 "One or more selected matrix columns are not in the data."
@@ -142,17 +205,30 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
         # rebuild, and so reset, every color widget on every tweak.
         make_annotation_spec_store <- function(rows_fn, df_fn) {
             spec <- reactive(.heatmap_annotation_spec(rows_fn(), df_fn()))
-            store <- reactiveVal(list())
+            store <- reactiveVal()
             observe({
                 new_spec <- spec()
                 if (!identical(new_spec, isolate(store()))) {
                     store(new_spec)
                 }
             })
-            store
+            function() {
+                val <- store()
+                if (is.null(val)) {
+                    val <- spec()
+                    store(val)
+                }
+                val
+            }
         }
-        row_annotation_spec <- make_annotation_spec_store(function() input$row_annotations, matrix_data)
-        column_annotation_spec <- make_annotation_spec_store(function() input$column_annotations, column_data)
+        row_annotation_rows <- reactive({
+            input$row_annotations %||% get_default(defaults, "row_annotations", NULL)
+        })
+        column_annotation_rows <- reactive({
+            input$column_annotations %||% get_default(defaults, "column_annotations", NULL)
+        })
+        row_annotation_spec <- make_annotation_spec_store(row_annotation_rows, filtered_matrix_data)
+        column_annotation_spec <- make_annotation_spec_store(column_annotation_rows, column_data)
 
         # A widget only rebuilds when its spec (column/type/levels) actually
         # changed (see the reactiveVal store above), but when it does -- e.g.
@@ -172,18 +248,27 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
                 s <- spec[[row_name]]
                 widget_id <- .heatmap_annotation_widget_id(prefix, row_name)
                 if (isTRUE(s$numeric)) {
-                    prev_low <- isolate(input[[paste0(widget_id, "_low")]])
-                    prev_mid <- isolate(input[[paste0(widget_id, "_mid")]])
-                    prev_high <- isolate(input[[paste0(widget_id, "_high")]])
+                    prev_low <- isolate(input[[paste0(widget_id, "_low")]]) %||%
+                        get_default(defaults, paste0(widget_id, "_low"), NULL) %||%
+                        get_default(defaults, paste0(s$column, "_low"), "#2166AC")
+                    prev_mid <- isolate(input[[paste0(widget_id, "_mid")]]) %||%
+                        get_default(defaults, paste0(widget_id, "_mid"), NULL) %||%
+                        get_default(defaults, paste0(s$column, "_mid"), "#F7F7F7")
+                    prev_high <- isolate(input[[paste0(widget_id, "_high")]]) %||%
+                        get_default(defaults, paste0(widget_id, "_high"), NULL) %||%
+                        get_default(defaults, paste0(s$column, "_high"), "#B2182B")
                     tagList(
                         strong(paste0(s$column, ":")),
-                        colourInput(ns(paste0(widget_id, "_low")), "Low Color", value = prev_low %||% "#2166AC"),
-                        colourInput(ns(paste0(widget_id, "_mid")), "Mid Color", value = prev_mid %||% "#F7F7F7"),
-                        colourInput(ns(paste0(widget_id, "_high")), "High Color", value = prev_high %||% "#B2182B")
+                        colourInput(ns(paste0(widget_id, "_low")), "Low Color", value = prev_low),
+                        colourInput(ns(paste0(widget_id, "_mid")), "Mid Color", value = prev_mid),
+                        colourInput(ns(paste0(widget_id, "_high")), "High Color", value = prev_high)
                     )
                 } else {
                     prev_colors <- isolate(input[[widget_id]])
-                    seeded <- resolve_palette(s$levels, NULL, ditto_palette, prev_colors)
+                    default_colors <- .default_group_colors(defaults, widget_id) %||%
+                        .default_group_colors(defaults, row_name) %||%
+                        .default_group_colors(defaults, s$column)
+                    seeded <- resolve_palette(s$levels, prev_colors, ditto_palette, default_colors)
                     multiColorPicker(ns(widget_id), label = paste0(s$column, ":"),
                         groups = s$levels, palette_options = default_palettes()[["choices"]],
                         selected_palette = "dittoColors", colors = seeded, compact = TRUE
@@ -195,9 +280,12 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
         output$row_annotation_colors_ui <- renderUI({
             annotation_colors_ui(row_annotation_spec(), "row_ann_color")
         })
+        outputOptions(output, "row_annotation_colors_ui", suspendWhenHidden = FALSE)
+
         output$column_annotation_colors_ui <- renderUI({
             annotation_colors_ui(column_annotation_spec(), "column_ann_color")
         })
+        outputOptions(output, "column_annotation_colors_ui", suspendWhenHidden = FALSE)
 
         # Build (and draw) the Heatmap object from the current inputs.
         build_heatmap <- reactive({
@@ -207,17 +295,18 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             # Scaling only affects what's drawn -- row/column annotation values
             # and the source-data download (plot_source_reactive(), which reads
             # heatmap_matrix() directly) always use the unscaled matrix.
-            scale_mode <- switch(isolate_fn(input$scale),
+            scale_choice <- isolate_fn(input$scale) %||% get_default(defaults, "scale", "None")
+            scale_mode <- switch(scale_choice %||% "None",
                 "Rows" = "row", "Columns" = "column", "none"
             )
             mat <- .heatmap_scale_matrix(raw_mat, scale_mode)
 
             min_val <- isolate_fn(input$min_value)
-            if (is.na(min_val)) min_val <- suppressWarnings(min(mat, na.rm = TRUE))
+            if (is.null(min_val) || is.na(min_val)) min_val <- suppressWarnings(min(mat, na.rm = TRUE))
             max_val <- isolate_fn(input$max_value)
-            if (is.na(max_val)) max_val <- suppressWarnings(max(mat, na.rm = TRUE))
+            if (is.null(max_val) || is.na(max_val)) max_val <- suppressWarnings(max(mat, na.rm = TRUE))
             mid_val <- isolate_fn(input$mid_value)
-            if (is.na(mid_val)) mid_val <- mean(c(min_val, max_val))
+            if (is.null(mid_val) || is.na(mid_val)) mid_val <- mean(c(min_val, max_val))
             # circlize::colorRamp2() errors on fewer than two distinct breaks,
             # which a constant matrix (or a user typing the same Min/Max Value)
             # would otherwise hit.
@@ -226,40 +315,98 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
                 max_val <- max_val + 0.5
             }
 
-            cols <- c(isolate_fn(input$low_color), isolate_fn(input$mid_color), isolate_fn(input$high_color))
-            if (isTRUE(isolate_fn(input$reverse.palette))) cols <- rev(cols)
+            low_c <- isolate_fn(input$low_color) %||% get_default(defaults, "low_color", .heatmap_default_colors()[1])
+            mid_c <- isolate_fn(input$mid_color) %||% get_default(defaults, "mid_color", .heatmap_default_colors()[2])
+            high_c <- isolate_fn(input$high_color) %||% get_default(defaults, "high_color", .heatmap_default_colors()[3])
+            cols <- c(low_c, mid_c, high_c)
+            if (isTRUE(isolate_fn(input$reverse.palette) %||% get_default(defaults, "reverse.palette", FALSE))) {
+                cols <- rev(cols)
+            }
             col_fun <- circlize::colorRamp2(c(min_val, mid_val, max_val), cols)
+
+            # Row-annotation values come from the *filtered* matrix data frame.
+            # heatmap_matrix() builds mat from exactly these rows, in this
+            # order, so the two line up 1:1 positionally -- reading the
+            # unfiltered matrix_data() here would relabel every track the
+            # moment a Row Filter is set. Column-annotation values are matched
+            # by value from the separate column_data() table via the Column Key
+            # input, so a narrower set of columns needs no equivalent care.
+            row_source_df <- filtered_matrix_data()
+            row_key_values <- rownames(raw_mat)
+            if (is.null(row_key_values)) row_key_values <- as.character(seq_len(nrow(raw_mat)))
+
+            # Values backing an "Annotation" split, pulled through the same
+            # helper the annotation tracks use so a split and a track on one
+            # column can never disagree about what that column means.
+            split_values <- function(cols, source_df, key_values, key_col) {
+                if (is.null(cols) || length(cols) == 0) {
+                    return(NULL)
+                }
+                vals <- lapply(cols, function(cl) {
+                    .heatmap_annotation_values(source_df, cl, key_values, key_col)
+                })
+                names(vals) <- cols
+                vals <- Filter(Negate(is.null), vals)
+                if (length(vals) == 0) {
+                    return(NULL)
+                }
+                as.data.frame(vals, stringsAsFactors = FALSE, check.names = FALSE)
+            }
 
             # Exactly one of row_km/row_split is ever passed to Heatmap() below
             # (never both) — see .heatmap_resolve_split() for why.
             row_res <- .heatmap_resolve_split(
-                isolate_fn(input$row_split_by), isolate_fn(input$row_split_n), nrow(mat)
+                isolate_fn(input$row_split_by) %||% get_default(defaults, "row_split_by", "None"),
+                isolate_fn(input$row_split_n) %||% get_default(defaults, "row_split_n", NA),
+                nrow(mat),
+                split_values(
+                    isolate_fn(input$row_split_cols) %||% get_default(defaults, "row_split_cols", NULL),
+                    row_source_df, row_key_values, NULL
+                )
             )
             column_res <- .heatmap_resolve_split(
-                isolate_fn(input$column_split_by), isolate_fn(input$column_split_n), ncol(mat)
+                isolate_fn(input$column_split_by) %||% get_default(defaults, "column_split_by", "None"),
+                isolate_fn(input$column_split_n) %||% get_default(defaults, "column_split_n", NA),
+                ncol(mat),
+                split_values(
+                    isolate_fn(input$column_split_cols) %||% get_default(defaults, "column_split_cols", NULL),
+                    column_data(),
+                    colnames(raw_mat),
+                    isolate_fn(input$column_key) %||% get_default(defaults, "column_key", NULL)
+                )
             )
-
-            # Row-annotation values come straight from raw_mat's own data frame
-            # (heatmap_matrix() never reorders/filters rows, so it lines up with
-            # mat 1:1 positionally); column-annotation values are matched from
-            # the separate column_data() table via the Column Key input.
-            row_key_values <- rownames(raw_mat)
-            if (is.null(row_key_values)) row_key_values <- as.character(seq_len(nrow(raw_mat)))
 
             # Reads a row's dynamically-rendered color widget(s) (see
             # annotation_colors_ui() above) -- built once per axis and reused
             # for both the Left/Right (or Top/Bottom) split below.
+            ditto_palette <- .flatten_palette_options(default_palettes()[["choices"]])[["dittoColors"]]
+
             make_color_lookup <- function(prefix) {
                 function(row_name, col, values) {
                     widget_id <- .heatmap_annotation_widget_id(prefix, row_name)
                     if (is.numeric(values)) {
+                        low <- isolate_fn(input[[paste0(widget_id, "_low")]]) %||%
+                            get_default(defaults, paste0(widget_id, "_low"), NULL) %||%
+                            get_default(defaults, paste0(col, "_low"), "#2166AC")
+                        mid <- isolate_fn(input[[paste0(widget_id, "_mid")]]) %||%
+                            get_default(defaults, paste0(widget_id, "_mid"), NULL) %||%
+                            get_default(defaults, paste0(col, "_mid"), "#F7F7F7")
+                        high <- isolate_fn(input[[paste0(widget_id, "_high")]]) %||%
+                            get_default(defaults, paste0(widget_id, "_high"), NULL) %||%
+                            get_default(defaults, paste0(col, "_high"), "#B2182B")
                         .heatmap_annotation_col(values,
-                            low_color = isolate_fn(input[[paste0(widget_id, "_low")]]),
-                            mid_color = isolate_fn(input[[paste0(widget_id, "_mid")]]),
-                            high_color = isolate_fn(input[[paste0(widget_id, "_high")]])
+                            low_color = low,
+                            mid_color = mid,
+                            high_color = high
                         )
                     } else {
-                        .heatmap_annotation_col(values, discrete_colors = isolate_fn(input[[widget_id]]))
+                        client_colors <- isolate_fn(input[[widget_id]])
+                        levels <- sort(unique(as.character(values[!is.na(values)])))
+                        default_colors <- .default_group_colors(defaults, widget_id) %||%
+                            .default_group_colors(defaults, row_name) %||%
+                            .default_group_colors(defaults, col)
+                        discrete_cols <- resolve_palette(levels, client_colors, ditto_palette, default_colors)
+                        .heatmap_annotation_col(values, discrete_colors = discrete_cols)
                     }
                 }
             }
@@ -267,19 +414,25 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             # Split each axis's rows by side and build one HeatmapAnnotation per
             # side, so each track can be placed independently.
             row_rows <- isolate_fn(input$row_annotations)
+            if (is.null(row_rows)) {
+                row_rows <- get_default(defaults, "row_annotations", NULL)
+            }
             row_color_lookup <- make_color_lookup("row_ann_color")
             left_ann <- .heatmap_build_annotation(
                 Filter(function(r) identical(r$side %||% "Left", "Left"), row_rows),
-                matrix_data(), row_key_values,
+                row_source_df, row_key_values,
                 key_col = NULL, which = "row", color_lookup = row_color_lookup
             )
             right_ann <- .heatmap_build_annotation(
                 Filter(function(r) identical(r$side, "Right"), row_rows),
-                matrix_data(), row_key_values,
+                row_source_df, row_key_values,
                 key_col = NULL, which = "row", color_lookup = row_color_lookup
             )
 
             column_rows <- isolate_fn(input$column_annotations)
+            if (is.null(column_rows)) {
+                column_rows <- get_default(defaults, "column_annotations", NULL)
+            }
             column_color_lookup <- make_color_lookup("column_ann_color")
             top_ann <- .heatmap_build_annotation(
                 Filter(function(r) identical(r$side %||% "Top", "Top"), column_rows),
@@ -294,40 +447,40 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
 
             ht <- ComplexHeatmap::Heatmap(
                 matrix = mat,
-                name = isolate_fn(input$name),
+                name = isolate_fn(input$name) %||% get_default(defaults, "name", "value"),
                 col = col_fun,
-                na_col = isolate_fn(input$na_col),
-                show_heatmap_legend = isolate_fn(input$show_heatmap_legend),
-                border = isolate_fn(input$border),
+                na_col = isolate_fn(input$na_col) %||% get_default(defaults, "na_col", "grey"),
+                show_heatmap_legend = isolate_fn(input$show_heatmap_legend) %||% get_default(defaults, "show_heatmap_legend", TRUE),
+                border = isolate_fn(input$border) %||% get_default(defaults, "border", FALSE),
                 left_annotation = left_ann,
                 right_annotation = right_ann,
                 top_annotation = top_ann,
                 bottom_annotation = bottom_ann,
-                cluster_rows = isolate_fn(input$cluster_rows),
-                cluster_columns = isolate_fn(input$cluster_columns),
-                clustering_distance_rows = isolate_fn(input$clustering_distance_rows),
-                clustering_distance_columns = isolate_fn(input$clustering_distance_columns),
-                clustering_method_rows = isolate_fn(input$clustering_method_rows),
-                clustering_method_columns = isolate_fn(input$clustering_method_columns),
-                show_row_dend = isolate_fn(input$show_row_dend),
-                show_column_dend = isolate_fn(input$show_column_dend),
+                cluster_rows = isolate_fn(input$cluster_rows) %||% get_default(defaults, "cluster_rows", TRUE),
+                cluster_columns = isolate_fn(input$cluster_columns) %||% get_default(defaults, "cluster_columns", TRUE),
+                clustering_distance_rows = isolate_fn(input$clustering_distance_rows) %||% get_default(defaults, "clustering_distance_rows", "euclidean"),
+                clustering_distance_columns = isolate_fn(input$clustering_distance_columns) %||% get_default(defaults, "clustering_distance_columns", "euclidean"),
+                clustering_method_rows = isolate_fn(input$clustering_method_rows) %||% get_default(defaults, "clustering_method_rows", "complete"),
+                clustering_method_columns = isolate_fn(input$clustering_method_columns) %||% get_default(defaults, "clustering_method_columns", "complete"),
+                show_row_dend = isolate_fn(input$show_row_dend) %||% get_default(defaults, "show_row_dend", TRUE),
+                show_column_dend = isolate_fn(input$show_column_dend) %||% get_default(defaults, "show_column_dend", TRUE),
                 row_km = row_res$km,
                 column_km = column_res$km,
                 row_split = row_res$split,
                 column_split = column_res$split,
-                row_gap = grid::unit(isolate_fn(input$row_gap), "mm"),
-                column_gap = grid::unit(isolate_fn(input$column_gap), "mm"),
-                row_title = isolate_fn(input$row_title),
-                column_title = isolate_fn(input$column_title),
-                show_row_names = isolate_fn(input$show_row_names),
-                show_column_names = isolate_fn(input$show_column_names),
-                row_names_side = isolate_fn(input$row_names_side),
-                column_names_side = isolate_fn(input$column_names_side),
-                column_names_rot = isolate_fn(input$column_names_rot),
-                row_names_gp = grid::gpar(fontsize = isolate_fn(input$row_names_fontsize)),
-                column_names_gp = grid::gpar(fontsize = isolate_fn(input$column_names_fontsize)),
-                row_title_gp = grid::gpar(fontsize = isolate_fn(input$title_fontsize)),
-                column_title_gp = grid::gpar(fontsize = isolate_fn(input$title_fontsize))
+                row_gap = grid::unit(isolate_fn(input$row_gap) %||% get_default(defaults, "row_gap", 1), "mm"),
+                column_gap = grid::unit(isolate_fn(input$column_gap) %||% get_default(defaults, "column_gap", 1), "mm"),
+                row_title = isolate_fn(input$row_title) %||% get_default(defaults, "row_title", ""),
+                column_title = isolate_fn(input$column_title) %||% get_default(defaults, "column_title", ""),
+                show_row_names = isolate_fn(input$show_row_names) %||% get_default(defaults, "show_row_names", TRUE),
+                show_column_names = isolate_fn(input$show_column_names) %||% get_default(defaults, "show_column_names", TRUE),
+                row_names_side = isolate_fn(input$row_names_side) %||% get_default(defaults, "row_names_side", "right"),
+                column_names_side = isolate_fn(input$column_names_side) %||% get_default(defaults, "column_names_side", "bottom"),
+                column_names_rot = isolate_fn(input$column_names_rot) %||% get_default(defaults, "column_names_rot", 90),
+                row_names_gp = grid::gpar(fontsize = isolate_fn(input$row_names_fontsize) %||% get_default(defaults, "row_names_fontsize", 12)),
+                column_names_gp = grid::gpar(fontsize = isolate_fn(input$column_names_fontsize) %||% get_default(defaults, "column_names_fontsize", 12)),
+                row_title_gp = grid::gpar(fontsize = isolate_fn(input$title_fontsize) %||% get_default(defaults, "title_fontsize", 13.2)),
+                column_title_gp = grid::gpar(fontsize = isolate_fn(input$title_fontsize) %||% get_default(defaults, "title_fontsize", 13.2))
             )
 
             # The interactive widget needs a *drawn* heatmap (HeatmapList) to
@@ -352,10 +505,24 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
         root_session <- session$rootScope()
 
         observeEvent(build_heatmap(), {
+            h_id <- ns("Heatmap")
+            # InteractiveComplexHeatmap requires the matching UI component to have been
+            # generated (which registers the heatmap in its environment). It keys that
+            # registry by validate_heatmap_id(), which is .heatmap_widget_id()'s
+            # normalisation -- so the namespaced id must be normalised before the lookup
+            # or `[[` misses on every module-hosted heatmap (every `-` in the namespace
+            # is an `_` in the key) and the widget is never made. Only the lookup needs
+            # it: makeInteractiveComplexHeatmap() normalises `heatmap_id` itself.
+            if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE) ||
+                is.null(getFromNamespace("shiny_env", "InteractiveComplexHeatmap")$heatmap[[
+                    .heatmap_widget_id(h_id)
+                ]])) {
+                return()
+            }
             InteractiveComplexHeatmap::makeInteractiveComplexHeatmap(
                 root_session$input, root_session$output, root_session,
                 build_heatmap(),
-                heatmap_id = ns("Heatmap")
+                heatmap_id = h_id
             )
         }, ignoreNULL = TRUE)
 
@@ -372,6 +539,9 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             updateTextInput(session, "name", value = get_default(defaults, "name", "value"))
             colourpicker::updateColourInput(session, "na_col", value = get_default(defaults, "na_col", "grey"))
             update_viz_select(session, "scale", selected = get_default(defaults, "scale", "None"))
+
+            updateTextInput(session, "row_filter", value = get_default(defaults, "row_filter", ""))
+            updateTextInput(session, "column_filter", value = get_default(defaults, "column_filter", ""))
 
             updateCheckboxInput(session, "reverse.palette", value = get_default(defaults, "reverse.palette", FALSE, is.logical))
             default_cols <- .heatmap_default_colors()
@@ -394,6 +564,8 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
             updateCheckboxInput(session, "show_column_dend", value = get_default(defaults, "show_column_dend", TRUE, is.logical))
             update_viz_select(session, "row_split_by", selected = get_default(defaults, "row_split_by", "None"))
             updateNumericInput(session, "row_split_n", value = get_default(defaults, "row_split_n", NA, is.numeric))
+            update_viz_select(session, "row_split_cols",
+                selected = get_default(defaults, "row_split_cols", character(0)))
             update_viz_select(session, "column_split_by", selected = get_default(defaults, "column_split_by", "None"))
             updateNumericInput(session, "column_split_n", value = get_default(defaults, "column_split_n", NA, is.numeric))
             updateNumericInput(session, "row_gap", value = get_default(defaults, "row_gap", 1, is.numeric))
@@ -429,6 +601,8 @@ ComplexHeatmap_HeatmapServer <- function(id, data, hide.inputs = NULL, hide.tabs
                         function(x) x %in% column.key.choices
                     ))
                 reset_multi_dynamic("column_annotations", "column_annotations")
+                update_viz_select(session, "column_split_cols",
+                    selected = get_default(defaults, "column_split_cols", character(0)))
             }
         })
 

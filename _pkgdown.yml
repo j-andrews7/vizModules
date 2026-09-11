@@ -239,6 +239,7 @@ reference:
       - linetype_to_dash
       - recycle_line_style
       - string_to_linetypes
+      - heatmap_fit_width
 
   - title: "Manual Plot Edits"
     desc: "Functions for applying user-drawn shapes and annotations to plotly figures."

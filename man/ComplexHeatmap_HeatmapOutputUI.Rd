@@ -4,7 +4,7 @@
 \alias{ComplexHeatmap_HeatmapOutputUI}
 \title{Output UI components for the ComplexHeatmap module}
 \usage{
-ComplexHeatmap_HeatmapOutputUI(id, resizable = TRUE, ...)
+ComplexHeatmap_HeatmapOutputUI(id, resizable = TRUE, fit.width = TRUE, ...)
 }
 \arguments{
 \item{id}{The ID for the Shiny module.}
@@ -12,6 +12,15 @@ ComplexHeatmap_HeatmapOutputUI(id, resizable = TRUE, ...)
 \item{resizable}{Logical; accepted for signature parity with the other module
 output functions but ignored, since the InteractiveComplexHeatmap widget
 manages its own sizing.}
+
+\item{fit.width}{Logical; when \code{TRUE} (the default) the widget's panels are
+scaled once on load so the whole thing fits the width of its container,
+instead of sitting at the fixed pixel widths baked in by
+\pkg{InteractiveComplexHeatmap}. \code{width1}/\code{width2} (and their defaults)
+then act as the relative widths that get scaled, rather than absolute
+sizes. Heights are left alone, and the widget's own resize handle and size
+tab still override the fitted width afterwards. Pass \code{FALSE} for fixed
+pixel widths.}
 
 \item{...}{Additional arguments passed to
 \code{\link[InteractiveComplexHeatmap:InteractiveComplexHeatmapOutput]{InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()}}, e.g.
@@ -41,6 +50,11 @@ own docs. \code{layout} has nothing left to arrange in compact mode, since only
 one static panel remains. No server-side change is needed to turn compact
 mode on or off.
 
+A floating info panel is moved onto \verb{<body>} by \pkg{InteractiveComplexHeatmap}
+and parked off-screen when idle. It is parked to the \emph{left} here rather than
+to the right as the package does, since a box parked past the right edge
+extends the host page's scrollable width by 10,000px.
+
 To place the three components independently anywhere in a custom UI
 (separate tabs, cards, columns, etc.), use \code{\link[=ComplexHeatmap_HeatmapMainOutputUI]{ComplexHeatmap_HeatmapMainOutputUI()}},
 \code{\link[=ComplexHeatmap_HeatmapSubOutputUI]{ComplexHeatmap_HeatmapSubOutputUI()}}, and \code{\link[=ComplexHeatmap_HeatmapInfoOutputUI]{ComplexHeatmap_HeatmapInfoOutputUI()}}
@@ -58,6 +72,8 @@ ComplexHeatmap_HeatmapOutputUI("heatmap")
 ComplexHeatmap_HeatmapOutputUI("heatmap", layout = "1|(2-3)")
 # Compact: no sub-heatmap panel, click/brush info floats near the cursor
 ComplexHeatmap_HeatmapOutputUI("heatmap", compact = TRUE)
+# Fixed pixel widths, ignoring the container:
+ComplexHeatmap_HeatmapOutputUI("heatmap", fit.width = FALSE)
 }
 \seealso{
 \code{\link[InteractiveComplexHeatmap:InteractiveComplexHeatmapOutput]{InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()}},

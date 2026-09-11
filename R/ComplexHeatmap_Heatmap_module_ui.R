@@ -25,7 +25,8 @@
 #' - `na_col` - Color for `NA` cells (UI: "NA Color", default: "grey")
 #' - `scale` - Z-score the matrix by row, column, or not at all (UI: "Scale", default:
 #'   "None"). Applied before plotting only — row/column annotation values and the
-#'   source-data download always use the unscaled matrix.
+#'   source-data download always use the unscaled matrix. Scaling happens *after* the Filter
+#'   tab's row/column filters, so a Z-score describes only the rows and columns on screen.
 #' - `reverse.palette` - Reverse the palette (UI: "Reverse Palette", default: FALSE)
 #' - `low_color`, `mid_color`, `high_color` - Colors for the low/mid/high end of the value
 #'   scale, i.e. what `col` in [ComplexHeatmap::Heatmap()] is built from via
@@ -43,16 +44,23 @@
 #' - `clustering_method_columns` - Column linkage method (UI: "Column Method", default: "complete")
 #' - `show_row_dend` - Show row dendrogram (UI: "Show Row Dendrogram", default: TRUE)
 #' - `show_column_dend` - Show column dendrogram (UI: "Show Column Dendrogram", default: TRUE)
-#' - `row_split_by` - Row split method: "None", "K-means", or "Hierarchical" (UI: "Row Split
-#'   Method", default: "None"). Only one split mechanism is ever active per axis, which avoids the
-#'   error `ComplexHeatmap::Heatmap()` raises when both a k-means and a hierarchical split are
-#'   requested at once.
-#' - `row_split_n` - Number of row groups, used when `row_split_by` is not "None" (UI: "Row
-#'   Groups", default: NA; clamped to the number of matrix rows)
-#' - `column_split_by` - Column split method: "None", "K-means", or "Hierarchical" (UI: "Column
-#'   Split Method", default: "None")
-#' - `column_split_n` - Number of column groups, used when `column_split_by` is not "None" (UI:
-#'   "Column Groups", default: NA; clamped to the number of matrix columns)
+#' - `row_split_by` - Row split method: "None", "K-means", "Hierarchical", or "Annotation" (UI:
+#'   "Row Split Method", default: "None"). Only one split mechanism is ever active per axis, which
+#'   avoids the error `ComplexHeatmap::Heatmap()` raises when both a k-means and a hierarchical
+#'   split are requested at once.
+#' - `row_split_n` - Number of row groups, used when `row_split_by` is "K-means" or "Hierarchical"
+#'   (UI: "Row Groups", default: NA; clamped to the number of matrix rows)
+#' - `row_split_cols` - Columns whose values group the rows, used when `row_split_by` is
+#'   "Annotation" (UI: "Row Split Columns", default: none). Several columns give nested slices,
+#'   one per observed combination. Values come from the same place row annotation tracks read, so
+#'   a split and a track on one column always agree.
+#' - `column_split_by` - Column split method: "None", "K-means", "Hierarchical", or "Annotation"
+#'   (UI: "Column Split Method", default: "None")
+#' - `column_split_n` - Number of column groups, used when `column_split_by` is "K-means" or
+#'   "Hierarchical" (UI: "Column Groups", default: NA; clamped to the number of matrix columns)
+#' - `column_split_cols` - Columns of the `column_annotations` table whose values group the
+#'   heatmap columns, used when `column_split_by` is "Annotation" (UI: "Column Split Columns";
+#'   only shown when `data` supplies a `column_annotations` table; default: none)
 #' - `row_gap` - Gap between row slices, mm (UI: "Row Gap (mm)", default: 1)
 #' - `column_gap` - Gap between column slices, mm (UI: "Column Gap (mm)", default: 1)
 #' - `row_title` - Row title (UI: "Row Title", default: "")
@@ -67,18 +75,55 @@
 #' - `title_fontsize` - Row/column title font size (UI: "Title Size", default: 13.2)
 #' - `row_annotations` - Row annotation tracks, built as [ComplexHeatmap::rowAnnotation()] and
 #'   passed as `left_annotation`/`right_annotation` per row (UI: "Annotations" tab, "Row
-#'   Annotations" [multiDynamicInput()] — each row picks a `matrix` column and a side, Left or
-#'   Right; default: none). Each row's color control appears just below the list once a column is
-#'   picked: numeric columns get Low/Mid/High color pickers, everything else gets a
-#'   [multiColorPicker()] with one color per level.
+#'   Annotations" [multiDynamicInput()] — each row picks a `matrix` column, a side (Left or
+#'   Right), and the side and font size of that track's own name label (Bottom or Top, since
+#'   ComplexHeatmap places a row annotation's name above or below it), and whether that track
+#'   contributes a legend ("Show Legend", default `TRUE`); default: none). Each
+#'   row's color control appears just below the list once a column is picked: numeric columns
+#'   get Low/Mid/High color pickers, everything else gets a [multiColorPicker()] with one color
+#'   per level. Seed those colors from `defaults` with a named color vector keyed by the
+#'   annotation's *column name* — the row names in a `row_annotations`/`column_annotations`
+#'   default are not stable, since the client reports rows back as `row1`, `row2`, ...
 #' - `column_key` - Column in `column_annotations` matched against the matrix's selected
 #'   column names (UI: "Annotations" tab, "Column Key"; only shown when `data` supplies a
 #'   `column_annotations` table)
 #' - `column_annotations` - Column annotation tracks, built as
 #'   [ComplexHeatmap::columnAnnotation()] and passed as `top_annotation`/`bottom_annotation` per
 #'   row (UI: "Annotations" tab, "Column Annotations" [multiDynamicInput()] — each row picks a
-#'   column and a side, Top or Bottom, with the same per-row color controls as row annotations;
-#'   only shown when `data` supplies a `column_annotations` table; default: none)
+#'   column, a side (Top or Bottom), the side and font size of that track's own name label
+#'   (Right or Left, since ComplexHeatmap places a column annotation's name beside it), and
+#'   whether that track contributes a legend ("Show Legend", default `TRUE`), with the
+#'   same per-row color controls as row annotations; only shown when `data` supplies a
+#'   `column_annotations` table; default: none)
+#'
+#' @section Plot parameters implementing new functionality:
+#' The "Filter" tab's two inputs have no [ComplexHeatmap::Heatmap()] equivalent — they
+#' narrow the matrix before it is built, so a specific set of genes or samples can be
+#' plotted without wiring up the separate `dataFilter` module:
+#'
+#' - `row_filter` - Expression keeping only the matching rows (UI: "Row Filter", default: "").
+#'   Evaluated against the `matrix` data frame, so every one of its columns is in scope —
+#'   annotation columns, the row-name column, and the matrix columns themselves.
+#' - `column_filter` - Expression keeping only the matching matrix columns (UI: "Column Filter",
+#'   default: ""). Matrix columns are sample names rather than rows of a data frame, so the
+#'   expression is evaluated against a frame built with one row per selected matrix column: a
+#'   synthetic `column` field holding the column name, plus every field of `column_annotations`
+#'   joined via `column_key`. `column %in% c("Healthy_1", "Healthy_2")` therefore works with no
+#'   metadata table at all, while `condition == "Disease"` works as soon as one is supplied. If
+#'   `column_annotations` already has a field named `column`, the real one wins and no synthetic
+#'   is added.
+#'
+#' Both are evaluated with [safe_eval_filter()], which permits comparisons, `&`/`|`/`!`,
+#' `%in%`, `is.na()`, arithmetic, and the string helpers `grepl`, `startsWith`, `endsWith`,
+#' `substr`, `nchar`, `toupper`, `tolower`, and `trimws`. Anything else — a function call
+#' outside that list, or a symbol that is not a column — is rejected and reported in the UI
+#' rather than evaluated. An expression yielding `NA` for a row drops that row.
+#'
+#' Filtering runs before everything else: `scale`, the annotation tracks, the split methods,
+#' and the source download all describe the filtered matrix.
+#'
+#' Both inputs are debounced by 700ms, so the heatmap redraws once you pause rather than on
+#' every keystroke of a half-typed expression.
 #'
 #' @section Plot parameters not implemented:
 #' The following [ComplexHeatmap::Heatmap()] parameters are not exposed because
@@ -159,7 +204,21 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
         "complete", "average", "single", "ward.D", "ward.D2",
         "mcquitty", "median", "centroid"
     )
-    split.method.choices <- c("None", "K-means", "Hierarchical")
+    split.method.choices <- c("None", "K-means", "Hierarchical", "Annotation")
+
+    # Both filter tooltips end with the same vocabulary note; each tooltip has to
+    # stand alone, so it is built once here rather than repeated inline.
+    filter_vocabulary <- paste(
+        "Available: comparisons, & | !, %in%, is.na(), arithmetic, and",
+        "grepl/startsWith/endsWith/substr/nchar/toupper/tolower/trimws.",
+        "Filtering happens before scaling, so a Z-score describes only what is shown."
+    )
+    # `column` is synthesised per matrix column name unless the metadata already
+    # claims the name -- see .heatmap_column_meta().
+    column.filter.fields <- union(
+        if (!"column" %in% column.key.choices) "column",
+        column.key.choices
+    )
     scale.choices <- c("None", "Rows", "Columns")
 
     inputs <- list(
@@ -200,6 +259,25 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
                     function(x) x %in% scale.choices
                 )
             ), "Z-score the matrix by row or column before plotting (a constant row/column becomes 0)", placement = "top", options = tip_opts)
+        ),
+        "Filter" = tagList(
+            tipify(textInput(ns("row_filter"), "Row Filter",
+                value = get_default(defaults, "row_filter", "")
+            ), paste(
+                "Keep only the rows matching this expression, e.g. pathway == 'Immune',",
+                "or grepl('^RP', gene). Leave blank to keep every row.",
+                "Fields:", paste0(paste(all.cols, collapse = ", "), "."),
+                filter_vocabulary
+            ), placement = "bottom", options = tip_opts),
+            tipify(textInput(ns("column_filter"), "Column Filter",
+                value = get_default(defaults, "column_filter", "")
+            ), paste(
+                "Keep only the matrix columns matching this expression, e.g.",
+                "condition == 'Disease', or startsWith(column, 'Healthy').",
+                "Leave blank to keep every column.",
+                "Fields:", paste0(paste(column.filter.fields, collapse = ", "), "."),
+                filter_vocabulary
+            ), placement = "bottom", options = tip_opts)
         ),
         "Colors" = tagList(
             tipify(colourInput(ns("low_color"), "Low Color",
@@ -281,7 +359,18 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
             tipify(numericInput(ns("row_split_n"), "Row Groups",
                 min = 2, step = 1,
                 value = get_default(defaults, "row_split_n", NA, is.numeric)
-            ), "Number of row groups (used when Row Split Method is not 'None')", placement = "top", options = tip_opts),
+            ), "Number of row groups (used when Row Split Method is 'K-means' or 'Hierarchical')", placement = "top", options = tip_opts),
+            tipify(viz_select_input(ns("row_split_cols"), "Row Split Columns",
+                choices = row.annotation.choices,
+                selected = get_default(
+                    defaults, "row_split_cols", character(0),
+                    function(x) all(x %in% row.annotation.choices)
+                ),
+                multiple = TRUE
+            ), paste(
+                "Columns whose values group the rows (used when Row Split Method is 'Annotation').",
+                "Several columns give nested slices, one per observed combination."
+            ), placement = "bottom", options = tip_opts),
             tipify(viz_select_input(ns("column_split_by"), "Column Split Method",
                 choices = split.method.choices,
                 selected = get_default(
@@ -292,7 +381,20 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
             tipify(numericInput(ns("column_split_n"), "Column Groups",
                 min = 2, step = 1,
                 value = get_default(defaults, "column_split_n", NA, is.numeric)
-            ), "Number of column groups (used when Column Split Method is not 'None')", placement = "top", options = tip_opts),
+            ), "Number of column groups (used when Column Split Method is 'K-means' or 'Hierarchical')", placement = "top", options = tip_opts),
+            if (!is.null(column.data)) {
+                tipify(viz_select_input(ns("column_split_cols"), "Column Split Columns",
+                    choices = column.annotation.choices,
+                    selected = get_default(
+                        defaults, "column_split_cols", character(0),
+                        function(x) all(x %in% column.annotation.choices)
+                    ),
+                    multiple = TRUE
+                ), paste(
+                    "Columns of the sample-metadata table whose values group the heatmap columns",
+                    "(used when Column Split Method is 'Annotation'). Several give nested slices."
+                ), placement = "bottom", options = tip_opts)
+            },
             tipify(numericInput(ns("row_gap"), "Row Gap (mm)",
                 min = 0, step = 0.5,
                 value = get_default(defaults, "row_gap", 1, is.numeric)
@@ -364,7 +466,19 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
                     ns("row_annotations"), "Row Annotations",
                     row_spec = list(
                         column = list(type = "select", args = list(choices = row.annotation.choices)),
-                        side = list(type = "select", args = list(choices = c("Left", "Right")))
+                        side = list(type = "select", args = list(choices = c("Left", "Right"))),
+                        # ComplexHeatmap puts a *row* annotation's name above or
+                        # below the track; left/right is a column-annotation
+                        # thing and errors here.
+                        label_side = list(type = "select", args = list(
+                            label = "Label Side", choices = c("Bottom", "Top")
+                        )),
+                        label_size = list(type = "numeric", args = list(
+                            label = "Label Size", value = 10, min = 1, step = 0.5
+                        )),
+                        show_legend = list(type = "checkbox", args = list(
+                            label = "Show Legend", value = TRUE
+                        ))
                     ),
                     elements = get_default(defaults, "row_annotations", NULL),
                     max_per_row = 2
@@ -381,7 +495,18 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
                         ns("column_annotations"), "Column Annotations",
                         row_spec = list(
                             column = list(type = "select", args = list(choices = column.annotation.choices)),
-                            side = list(type = "select", args = list(choices = c("Top", "Bottom")))
+                            side = list(type = "select", args = list(choices = c("Top", "Bottom"))),
+                            # A *column* annotation's name sits to its left or
+                            # right; top/bottom is the row-annotation form.
+                            label_side = list(type = "select", args = list(
+                                label = "Label Side", choices = c("Right", "Left")
+                            )),
+                            label_size = list(type = "numeric", args = list(
+                                label = "Label Size", value = 10, min = 1, step = 0.5
+                            )),
+                            show_legend = list(type = "checkbox", args = list(
+                                label = "Show Legend", value = TRUE
+                            ))
                         ),
                         elements = get_default(defaults, "column_annotations", NULL),
                         max_per_row = 2
@@ -429,6 +554,11 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' one static panel remains. No server-side change is needed to turn compact
 #' mode on or off.
 #'
+#' A floating info panel is moved onto `<body>` by \pkg{InteractiveComplexHeatmap}
+#' and parked off-screen when idle. It is parked to the *left* here rather than
+#' to the right as the package does, since a box parked past the right edge
+#' extends the host page's scrollable width by 10,000px.
+#'
 #' To place the three components independently anywhere in a custom UI
 #' (separate tabs, cards, columns, etc.), use [ComplexHeatmap_HeatmapMainOutputUI()],
 #' [ComplexHeatmap_HeatmapSubOutputUI()], and [ComplexHeatmap_HeatmapInfoOutputUI()]
@@ -442,6 +572,14 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' @param resizable Logical; accepted for signature parity with the other module
 #'   output functions but ignored, since the InteractiveComplexHeatmap widget
 #'   manages its own sizing.
+#' @param fit.width Logical; when `TRUE` (the default) the widget's panels are
+#'   scaled once on load so the whole thing fits the width of its container,
+#'   instead of sitting at the fixed pixel widths baked in by
+#'   \pkg{InteractiveComplexHeatmap}. `width1`/`width2` (and their defaults)
+#'   then act as the relative widths that get scaled, rather than absolute
+#'   sizes. Heights are left alone, and the widget's own resize handle and size
+#'   tab still override the fitted width afterwards. Pass `FALSE` for fixed
+#'   pixel widths.
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()], e.g.
 #'   `layout`, `compact`, `width1`/`height1`, `title1`/`title2`/`title3`.
@@ -463,7 +601,9 @@ ComplexHeatmap_HeatmapInputsUI <- function(id, data, defaults = NULL, title = NU
 #' ComplexHeatmap_HeatmapOutputUI("heatmap", layout = "1|(2-3)")
 #' # Compact: no sub-heatmap panel, click/brush info floats near the cursor
 #' ComplexHeatmap_HeatmapOutputUI("heatmap", compact = TRUE)
-ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
+#' # Fixed pixel widths, ignoring the container:
+#' ComplexHeatmap_HeatmapOutputUI("heatmap", fit.width = FALSE)
+ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -472,7 +612,19 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(ns("Heatmap"), ...)
+    dots <- list(...)
+    .heatmap_float_output(
+        .heatmap_fit_width(
+            InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(ns("Heatmap"), ...),
+            ns("Heatmap"),
+            scope = "widget",
+            panels = c("heatmap", "sub_heatmap"),
+            output = TRUE,
+            enable = fit.width
+        ),
+        ns("Heatmap"),
+        enable = isTRUE(dots$compact) || isTRUE(dots$output_ui_float)
+    )
 }
 
 
@@ -492,6 +644,10 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
 #'   heatmap.
 #' @param title Optional panel title. `NULL` (the default) omits the title.
 #' @param width,height Panel dimensions in pixels.
+#' @param fit.width Logical; when `TRUE` (the default) the panel is scaled once
+#'   on load to fit the width of its container, making `width` a starting
+#'   proportion rather than an absolute size. See
+#'   [ComplexHeatmap_HeatmapOutputUI()].
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::originalHeatmapOutput()], e.g. `action`,
 #'   `response`, `brush_opt`.
@@ -508,7 +664,8 @@ ComplexHeatmap_HeatmapOutputUI <- function(id, resizable = TRUE, ...) {
 #' @examples
 #' library(VizModules)
 #' ComplexHeatmap_HeatmapMainOutputUI("heatmap", title = "Heatmap")
-ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, height = 350, ...) {
+ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, height = 350,
+                                               fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -517,9 +674,15 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::originalHeatmapOutput(
+    .heatmap_fit_width(
+        InteractiveComplexHeatmap::originalHeatmapOutput(
+            ns("Heatmap"),
+            title = title, width = width, height = height, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, height = height, ...
+        scope = "main",
+        panels = "heatmap",
+        enable = fit.width
     )
 }
 
@@ -536,6 +699,10 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
 #'   heatmap.
 #' @param title Optional panel title. `NULL` (the default) omits the title.
 #' @param width,height Panel dimensions in pixels.
+#' @param fit.width Logical; when `TRUE` (the default) the panel is scaled once
+#'   on load to fit the width of its container, making `width` a starting
+#'   proportion rather than an absolute size. See
+#'   [ComplexHeatmap_HeatmapOutputUI()].
 #' @param ... Additional arguments passed to
 #'   [InteractiveComplexHeatmap::subHeatmapOutput()].
 #'
@@ -551,7 +718,8 @@ ComplexHeatmap_HeatmapMainOutputUI <- function(id, title = NULL, width = 450, he
 #' @examples
 #' library(VizModules)
 #' ComplexHeatmap_HeatmapSubOutputUI("heatmap", title = "Selected region")
-ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, height = 350, ...) {
+ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, height = 350,
+                                              fit.width = TRUE, ...) {
     ns <- NS(id)
     if (!requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
         stop(
@@ -560,9 +728,15 @@ ComplexHeatmap_HeatmapSubOutputUI <- function(id, title = NULL, width = 400, hei
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::subHeatmapOutput(
+    .heatmap_fit_width(
+        InteractiveComplexHeatmap::subHeatmapOutput(
+            ns("Heatmap"),
+            title = title, width = width, height = height, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, height = height, ...
+        scope = "sub",
+        panels = "sub_heatmap",
+        enable = fit.width
     )
 }
 
@@ -604,8 +778,231 @@ ComplexHeatmap_HeatmapInfoOutputUI <- function(id, title = NULL, width = 400, ..
             "BiocManager::install('InteractiveComplexHeatmap')."
         )
     }
-    InteractiveComplexHeatmap::HeatmapInfoOutput(
+    dots <- list(...)
+    .heatmap_float_output(
+        InteractiveComplexHeatmap::HeatmapInfoOutput(
+            ns("Heatmap"),
+            title = title, width = width, ...
+        ),
         ns("Heatmap"),
-        title = title, width = width, ...
+        enable = isTRUE(dots$output_ui_float)
+    )
+}
+
+
+#' Element ID used by an InteractiveComplexHeatmap widget
+#'
+#' Mirrors \pkg{InteractiveComplexHeatmap}'s internal `validate_heatmap_id()`,
+#' which is what actually decides the DOM ids the widget's markup and scripts
+#' use. A module namespace such as `"heatmap-Heatmap"` becomes
+#' `"heatmap_Heatmap"`, so selectors must be built from this rather than from
+#' the id handed to the output functions.
+#'
+#' @param id The heatmap id passed to the InteractiveComplexHeatmap output
+#'   functions, i.e. `ns("Heatmap")`.
+#'
+#' @return A character scalar; the id as it appears in the rendered HTML.
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_widget_id
+#' @keywords internal
+.heatmap_widget_id <- function(id) {
+    hid <- gsub("\\W+", "_", id)
+    if (!grepl("^[a-zA-Z]", hid)) {
+        hid <- paste0("v_", hid)
+    }
+    hid
+}
+
+
+#' HTML dependency for the heatmap width fitting script
+#'
+#' Ships the script that rescales an InteractiveComplexHeatmap widget's panels
+#' to their container on load.
+#'
+#' @return An `htmltools::htmlDependency` object.
+#'
+#' @importFrom htmltools htmlDependency
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_fit_width_dependency
+#' @keywords internal
+.heatmap_fit_width_dependency <- function() {
+    htmlDependency(
+        name = "vizmodules-heatmap-fit-width",
+        version = as.character(utils::packageVersion("VizModules")),
+        src = "src",
+        package = "VizModules",
+        script = "heatmapFitWidth.js"
+    )
+}
+
+
+#' Make a heatmap output panel fit its container's width
+#'
+#' Appends the call that rescales the widget once the page is ready, plus the
+#' dependency backing it.
+#'
+#' @param ui The UI object returned by the InteractiveComplexHeatmap output
+#'   function.
+#' @param id The heatmap id, i.e. `ns("Heatmap")`.
+#' @param scope One of `"widget"` (the combined widget), `"main"`, or `"sub"`;
+#'   picks the element whose natural width is measured against its container.
+#' @param panels Character vector of panel suffixes to scale, e.g. `"heatmap"`.
+#' @param output Logical; also scale the click/brush info panel.
+#' @param enable Logical; when `FALSE`, `ui` is returned untouched.
+#'
+#' @return `ui`, with the fitting script and dependency attached.
+#'
+#' @import shiny
+#' @importFrom htmltools attachDependencies
+#' @importFrom jsonlite toJSON
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_fit_width
+#' @keywords internal
+.heatmap_fit_width <- function(ui, id, scope, panels, output = FALSE, enable = TRUE) {
+    if (!isTRUE(enable)) {
+        return(ui)
+    }
+
+    hid <- .heatmap_widget_id(id)
+    root <- switch(scope,
+        widget = paste0(".", hid, "_widget"),
+        main = paste0("#", hid, "_heatmap_group"),
+        sub = paste0("#", hid, "_sub_heatmap_group")
+    )
+
+    config <- list(id = hid, root = root, panels = as.list(panels), output = output)
+    script <- tags$script(HTML(sprintf(
+        "VizModules.heatmapFitWidth(%s);",
+        toJSON(config, auto_unbox = TRUE)
+    )))
+
+    attachDependencies(
+        tagList(ui, script),
+        .heatmap_fit_width_dependency(),
+        append = TRUE
+    )
+}
+
+
+#' Fit a hand-built InteractiveComplexHeatmap widget to its container's width
+#'
+#' The heatmap module's output functions already do this (see their `fit.width`
+#' argument). This is the same behaviour for an app that calls
+#' [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()] itself rather
+#' than going through the module — a heatmap driven directly by
+#' [InteractiveComplexHeatmap::makeInteractiveComplexHeatmap()], say.
+#'
+#' `InteractiveComplexHeatmapOutput()` bakes its `width1`/`width2` into the page
+#' as fixed pixels, so the widget over- or under-fills whatever room the app
+#' actually gives it until the resize handle is dragged. Wrapping the output in
+#' this rescales the panels to their container once the page is laid out; the
+#' widget's own resize controls still win afterwards.
+#'
+#' A widget on a tab that is not the active one has no width to measure on load.
+#' It is fitted when its container is first laid out instead, so a heatmap the
+#' user has not opened yet is still correct the moment they do.
+#'
+#' @param ui The UI returned by
+#'   [InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput()] (or the
+#'   `originalHeatmapOutput()`/`subHeatmapOutput()` pair).
+#' @param heatmap_id The `heatmap_id` passed to that output function.
+#' @param panels Character vector of panels to scale. Defaults to both; pass
+#'   just `"heatmap"` for a `compact = TRUE` widget, which has no sub-heatmap.
+#' @param output Logical; also scale the click/brush info panel. Defaults to
+#'   `TRUE`, matching what [ComplexHeatmap_HeatmapOutputUI()] does for the same
+#'   combined widget; pass `FALSE` when the app lays that panel out itself.
+#'
+#' @return `ui`, with the fitting script and its dependency attached.
+#'
+#' @seealso [ComplexHeatmap_HeatmapOutputUI()], whose `fit.width` argument is
+#'   the module-side equivalent.
+#'
+#' @examples
+#' if (interactive() && requireNamespace("InteractiveComplexHeatmap", quietly = TRUE)) {
+#'     heatmap_fit_width(
+#'         InteractiveComplexHeatmap::InteractiveComplexHeatmapOutput(
+#'             heatmap_id = "my_ht", width1 = 1480, height1 = 500
+#'         ),
+#'         heatmap_id = "my_ht"
+#'     )
+#' }
+#'
+#' @author Jared Andrews
+#' @export
+heatmap_fit_width <- function(ui, heatmap_id,
+                              panels = c("heatmap", "sub_heatmap"),
+                              output = TRUE) {
+    .heatmap_fit_width(
+        ui, heatmap_id,
+        scope = "widget", panels = panels, output = output
+    )
+}
+
+
+#' HTML dependency for the floating info panel script
+#'
+#' Ships the script that re-parks \pkg{InteractiveComplexHeatmap}'s floating
+#' click/brush info panel so it stops widening the host page.
+#'
+#' @return An `htmltools::htmlDependency` object.
+#'
+#' @importFrom htmltools htmlDependency
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_float_output_dependency
+#' @keywords internal
+.heatmap_float_output_dependency <- function() {
+    htmlDependency(
+        name = "vizmodules-heatmap-float-output",
+        version = as.character(utils::packageVersion("VizModules")),
+        src = "src",
+        package = "VizModules",
+        script = "heatmapFloatOutput.js"
+    )
+}
+
+
+#' Keep a floating info panel from widening the page it sits on
+#'
+#' With `output_ui_float = TRUE` (which `compact = TRUE` implies),
+#' \pkg{InteractiveComplexHeatmap} detaches the click/brush info panel onto
+#' `<body>` and parks it at `right: -10000px` whenever it is idle. That box
+#' extends the *document's* scrollable width by ~10,000px, on every page of the
+#' app rather than only the one holding the heatmap. Appends the call that
+#' re-parks it to the left instead, where it contributes no overflow.
+#'
+#' @param ui The UI object returned by the InteractiveComplexHeatmap output
+#'   function.
+#' @param id The heatmap id, i.e. `ns("Heatmap")`.
+#' @param enable Logical; when `FALSE` (a non-floating panel), `ui` is returned
+#'   untouched.
+#'
+#' @return `ui`, with the re-parking script and dependency attached.
+#'
+#' @import shiny
+#' @importFrom htmltools attachDependencies
+#' @importFrom jsonlite toJSON
+#'
+#' @author Jared Andrews
+#' @rdname INTERNAL_heatmap_float_output
+#' @keywords internal
+.heatmap_float_output <- function(ui, id, enable = TRUE) {
+    if (!isTRUE(enable)) {
+        return(ui)
+    }
+
+    config <- list(id = .heatmap_widget_id(id))
+    script <- tags$script(HTML(sprintf(
+        "VizModules.heatmapFloatOutput(%s);",
+        toJSON(config, auto_unbox = TRUE)
+    )))
+
+    attachDependencies(
+        tagList(ui, script),
+        .heatmap_float_output_dependency(),
+        append = TRUE
     )
 }
