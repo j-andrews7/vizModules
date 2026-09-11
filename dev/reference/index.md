@@ -407,6 +407,9 @@ configuration.
   : Recycle style vector to match line count
 - [`string_to_linetypes()`](https://j-andrews7.github.io/VizModules/dev/reference/string_to_linetypes.md)
   : Parse and validate linetype string to a vector
+- [`heatmap_fit_width()`](https://j-andrews7.github.io/VizModules/dev/reference/heatmap_fit_width.md)
+  : Fit a hand-built InteractiveComplexHeatmap widget to its container's
+  width
 
 ## Manual Plot Edits
 

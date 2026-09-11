@@ -1,4 +1,5 @@
 <urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
+<url><loc>https://j-andrews7.github.io/VizModules/dev/AGENTS.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/LICENSE-text.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/LICENSE.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/articles/adding-a-new-module.html</loc></url>
@@ -11,7 +12,6 @@
 <url><loc>https://j-andrews7.github.io/VizModules/dev/articles/quick-start.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/articles/statistical-testing.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/authors.html</loc></url>
-<url><loc>https://j-andrews7.github.io/VizModules/dev/copilot-instructions.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/index.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/news/index.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/paper.html</loc></url>
@@ -92,6 +92,7 @@
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/get_default.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/get_documentation.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/get_model_backend.html</loc></url>
+<url><loc>https://j-andrews7.github.io/VizModules/dev/reference/heatmap_fit_width.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/hide_input.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/index.html</loc></url>
 <url><loc>https://j-andrews7.github.io/VizModules/dev/reference/is_pure_type.html</loc></url>

@@ -90,6 +90,18 @@ checklist may seem daunting at first glance, but most of the items
 already have helpers to implement them.</p>
 <p>And a fair few are to keep you from shooting yourself in the foot and
 avoiding most of the common module pitfalls.</p>
+<p>If you are working with an AI coding agent, the package ships an <a href="https://agentskills.io" class="external-link">Agent Skill</a> covering exactly this
+checklist - <strong><code>vizmodules-new-module</code></strong> - along
+with the required roxygen sections, the uniform input helpers, the traps
+that have cost real time here, and file templates to copy. Install it
+(and its two siblings) into your project with
+<code>VizModules::use_vizmodules_skills(".")</code>, or pass
+<code>client = "copilot"</code> / <code>client = "claude"</code> to
+write to <code>.github/skills/</code> or <code>.claude/skills/</code>
+instead of the default <code>.agents/skills/</code>. The skills live in
+<code>inst/skills/</code> in this repository, so <strong>keep them in
+step with this vignette</strong> when you change a convention it
+documents.</p>
 <div class="section level2">
 <h2 id="quick-checklist">Quick Checklist<a class="anchor" aria-label="anchor" href="#quick-checklist"></a>
 </h2>
@@ -144,6 +156,10 @@ Reactive Defaults</a>).</label></li>
 <li><label><input type="checkbox">Freeze any input you update from the
 server so the plot does not render twice (see <a href="#updating-your-own-inputs-from-the-server">Updating Your Own
 Inputs From the Server</a>).</label></li>
+<li><label><input type="checkbox">Debounce any free-text input the
+plot reads, so a <code><a href="https://rdrr.io/pkg/shiny/man/textInput.html" class="external-link">textInput()</a></code> does not rebuild the plot once
+per keystroke (see <a href="#debouncing-free-text-inputs">Debouncing
+Free-Text Inputs</a>).</label></li>
 <li><label><input type="checkbox">Wire up manual layout-edit
 persistence so user-dragged titles, legends, annotations, and colorbars
 survive re-renders (see <a href="#persisting-manual-layout-edits">Persisting Manual Layout
@@ -556,6 +572,56 @@ brackets.</p>
 </div>
 </div>
 <div class="section level2">
+<h2 id="debouncing-free-text-inputs">Debouncing Free-Text Inputs<a class="anchor" aria-label="anchor" href="#debouncing-free-text-inputs"></a>
+</h2>
+<p>The re-render problems above come from the <em>server</em> pushing
+values at the client. Free text has the opposite problem:
+<code><a href="https://rdrr.io/pkg/shiny/man/textInput.html" class="external-link">textInput()</a></code> and <code><a href="https://rdrr.io/pkg/shiny/man/textAreaInput.html" class="external-link">textAreaInput()</a></code> report to the
+server on <strong>every keystroke</strong>, so a plot that reads one
+directly is rebuilt once per character.</p>
+<p>That matters most when the input is an expression, because the
+intermediate states are not just wasted work, they are mostly
+<em>invalid</em> work. Typing <code>condition == "Disease"</code> walks
+through <code>c</code>, <code>co</code>, <code>con</code>, … and every
+one of those is a complete render cycle spent on an expression that
+cannot parse.</p>
+<p>Wrap the read in <code><a href="https://rdrr.io/pkg/shiny/man/debounce.html" class="external-link">shiny::debounce()</a></code> so a burst of typing
+collapses into one render once the user pauses:</p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Once, in the module server body -- not inside a reactive.</span></span>
+<span><span class="va">filter_text</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/shiny/man/debounce.html" class="external-link">debounce</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/shiny/man/reactive.html" class="external-link">reactive</a></span><span class="op">(</span><span class="va">input</span><span class="op">$</span><span class="va">row_filter</span><span class="op">)</span>, <span class="fl">700</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">filtered</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/shiny/man/reactive.html" class="external-link">reactive</a></span><span class="op">(</span><span class="op">{</span></span>
+<span>    <span class="va">keep</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/safe_eval_filter.html">safe_eval_filter</a></span><span class="op">(</span><span class="fu">filter_text</span><span class="op">(</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span>
+<span>    <span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">keep</span><span class="op">)</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="op">)</span> <span class="kw">else</span> <span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="op">)</span><span class="op">[</span><span class="va">keep</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
+<span><span class="op">}</span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="https://rdrr.io/pkg/shiny/man/debounce.html" class="external-link">debounce()</a></code> emits its initial value immediately and then
+holds the previous value while typing, so startup is unaffected and
+there is no blank first render to design around.</p>
+<ul class="task-list">
+<li><label><input type="checkbox">Debounce any
+<code><a href="https://rdrr.io/pkg/shiny/man/textInput.html" class="external-link">textInput()</a></code>/<code><a href="https://rdrr.io/pkg/shiny/man/textAreaInput.html" class="external-link">textAreaInput()</a></code> a plot reads,
+especially one holding an expression. 500-800ms is a good range; the
+more expensive the plot, the longer the delay earns its
+keep.</label></li>
+<li><label><input type="checkbox">Leave select, numeric, checkbox, and
+slider inputs alone. They report discrete choices rather than
+keystrokes, so there is nothing to collapse.</label></li>
+<li><label><input type="checkbox">Create the debounced reactive
+<strong>once</strong> in the server body. Creating it inside another
+reactive rebuilds the timer on every invalidation, which defeats
+it.</label></li>
+<li><label><input type="checkbox">Debouncing is not a substitute for
+the Auto Update tack. The tack lets the user opt out of live updates
+entirely; debouncing makes live updates bearable for the user who leaves
+it on.</label></li>
+</ul>
+<p><code><a href="../reference/ComplexHeatmap_HeatmapServer.html">ComplexHeatmap_HeatmapServer()</a></code>’s Row/Column Filter
+inputs are the worked example — a heatmap is drawn to a device and
+measured before it can be shown, so a per-keystroke rebuild is
+especially painful there.</p>
+</div>
+<div class="section level2">
 <h2 id="persisting-manual-layout-edits">Persisting Manual Layout Edits<a class="anchor" aria-label="anchor" href="#persisting-manual-layout-edits"></a>
 </h2>
 <p>Every VizModules plot is interactively editable: users can drag the
@@ -575,7 +641,7 @@ start.</p>
 <p><label><input type="checkbox">Near the top of your
 <code><a href="https://rdrr.io/pkg/shiny/man/moduleServer.html" class="external-link">moduleServer()</a></code> body, create a unique plotly event source
 for this module instance and the edit store:</label></p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># Unique source so each module instance captures only its own events.</span></span>
 <span><span class="va">plot_source</span> <span class="op">&lt;-</span> <span class="va">session</span><span class="op">$</span><span class="fu">ns</span><span class="op">(</span><span class="st">"myplot"</span><span class="op">)</span></span>
 <span><span class="va">edit_store</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/setup_manual_edits.html">setup_manual_edits</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">session</span>, <span class="va">plot_source</span><span class="op">)</span></span></code></pre></div>
@@ -585,7 +651,7 @@ for this module instance and the edit store:</label></p>
 <code><a href="https://rdrr.io/pkg/plotly/man/plotly-shiny.html" class="external-link">renderPlotly()</a></code>, pass the freshly built figure through
 <code><a href="../reference/finalize_manual_edits.html">finalize_manual_edits()</a></code> immediately before returning
 it:</label></p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">output</span><span class="op">$</span><span class="va">myPlot</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/plotly/man/plotly-shiny.html" class="external-link">renderPlotly</a></span><span class="op">(</span><span class="op">{</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/shiny/man/req.html" class="external-link">req</a></span><span class="op">(</span><span class="va">input</span><span class="op">$</span><span class="va">x</span>, <span class="va">input</span><span class="op">$</span><span class="va">y</span><span class="op">)</span></span>
 <span>    <span class="va">fig</span> <span class="op">&lt;-</span> <span class="fu">generate_myPlot</span><span class="op">(</span><span class="op">)</span>  <span class="co"># your function that builds the plotly figure</span></span>
@@ -794,7 +860,7 @@ column with tens of thousands of distinct values stays usable. A search
 box appears automatically once there are more than ten choices.</p>
 <p>An empty-string choice still means “no selection”; it is displayed as
 <code>(none)</code> so users can see and pick it.</p>
-<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/viz_select_input.html">viz_select_input</a></span><span class="op">(</span><span class="fu">ns</span><span class="op">(</span><span class="st">"group.by"</span><span class="op">)</span>, <span class="st">"Group By"</span>,</span>
 <span>    choices <span class="op">=</span> <span class="va">cat.choices</span>,</span>
 <span>    selected <span class="op">=</span> <span class="fu"><a href="../reference/get_default.html">get_default</a></span><span class="op">(</span><span class="va">defaults</span>, <span class="st">"group.by"</span>, <span class="st">""</span>, <span class="kw">function</span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="va">x</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">cat.choices</span><span class="op">)</span></span>
@@ -819,7 +885,7 @@ correction methods, bracket inset).</li>
 <p>Standard pattern — always use <code>placement = "top"</code> and
 <code>options = list(container = "body")</code> so tooltips render
 correctly inside sidebar panels:</p>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/shinyBS/man/tipify.html" class="external-link">tipify</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/shiny/man/textInput.html" class="external-link">textInput</a></span><span class="op">(</span><span class="fu">ns</span><span class="op">(</span><span class="st">"hline.intercepts"</span><span class="op">)</span>, <span class="st">"Y-intercepts"</span>,</span>
 <span>        placeholder <span class="op">=</span> <span class="st">"e.g. 2, -2"</span>,</span>
@@ -953,7 +1019,7 @@ expression is parsed, its AST is walked to ensure only allowed
 operations are present (comparisons, logical operators, column
 references, and literals), and then it is evaluated in a restricted
 environment containing only the data frame’s columns.</p>
-<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># In a module server — filtering rows by a textInput:</span></span>
 <span><span class="va">rows.use</span> <span class="op">=</span> <span class="fu"><a href="../reference/safe_eval_filter.html">safe_eval_filter</a></span><span class="op">(</span><span class="fu">isolate_fn</span><span class="op">(</span><span class="va">input</span><span class="op">$</span><span class="va">rows.use</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>Returns a logical vector (same length as <code>nrow(data)</code>), or
@@ -968,7 +1034,7 @@ disallowed operations.</p>
 string through to a downstream plotting function that will evaluate it
 internally (e.g., <code>plotthis::BoxPlot(highlight = ...)</code>). The
 string is validated but not executed.</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># In a module server — passing a highlight expression to plotthis:</span></span>
 <span><span class="va">highlight</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/validate_expression.html">validate_expression</a></span><span class="op">(</span><span class="fu">isolate_fn</span><span class="op">(</span><span class="va">input</span><span class="op">$</span><span class="va">highlight</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>Returns the original string if safe, or <code>NULL</code>.</p>
@@ -984,7 +1050,7 @@ the allowed list (<code>"log2"</code>, <code>"log"</code>,
 <code>"log10"</code>, <code>"neg_log10"</code>, <code>"log1p"</code>,
 <code>"as.factor"</code>, <code>"abs"</code>, <code>"sqrt"</code>) are
 accepted.</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># In a module server — resolving an adjustment function:</span></span>
 <span><span class="va">x.adj.fxn</span> <span class="op">=</span> <span class="fu"><a href="../reference/safe_resolve_adj_fxn.html">safe_resolve_adj_fxn</a></span><span class="op">(</span><span class="fu">isolate_fn</span><span class="op">(</span><span class="va">input</span><span class="op">$</span><span class="va">x.adj.fxn</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>Returns the function, or <code>NULL</code> if the name is empty or

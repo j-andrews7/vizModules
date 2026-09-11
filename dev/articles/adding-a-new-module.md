@@ -12,6 +12,17 @@ helpers to implement them.
 And a fair few are to keep you from shooting yourself in the foot and
 avoiding most of the common module pitfalls.
 
+If you are working with an AI coding agent, the package ships an [Agent
+Skill](https://agentskills.io) covering exactly this checklist -
+**`vizmodules-new-module`** - along with the required roxygen sections,
+the uniform input helpers, the traps that have cost real time here, and
+file templates to copy. Install it (and its two siblings) into your
+project with `VizModules::use_vizmodules_skills(".")`, or pass
+`client = "copilot"` / `client = "claude"` to write to `.github/skills/`
+or `.claude/skills/` instead of the default `.agents/skills/`. The
+skills live in `inst/skills/` in this repository, so **keep them in step
+with this vignette** when you change a convention it documents.
+
 ## Quick Checklist
 
 Pick the plot function you are wrapping and name your module
@@ -55,6 +66,11 @@ Defaults](#supporting-reactive-defaults)).
 Freeze any input you update from the server so the plot does not render
 twice (see [Updating Your Own Inputs From the
 Server](#updating-your-own-inputs-from-the-server)).
+
+Debounce any free-text input the plot reads, so a
+[`textInput()`](https://rdrr.io/pkg/shiny/man/textInput.html) does not
+rebuild the plot once per keystroke (see [Debouncing Free-Text
+Inputs](#debouncing-free-text-inputs)).
 
 Wire up manual layout-edit persistence so user-dragged titles, legends,
 annotations, and colorbars survive re-renders (see [Persisting Manual
@@ -452,6 +468,63 @@ Pass the resolved limits on to
 too, as `y.min` and `y.max`. It has the last word on the drawn range,
 and knowing what you asked for is what lets it leave a large maximum
 alone rather than shrinking the axis onto the brackets.
+
+## Debouncing Free-Text Inputs
+
+The re-render problems above come from the *server* pushing values at
+the client. Free text has the opposite problem:
+[`textInput()`](https://rdrr.io/pkg/shiny/man/textInput.html) and
+[`textAreaInput()`](https://rdrr.io/pkg/shiny/man/textAreaInput.html)
+report to the server on **every keystroke**, so a plot that reads one
+directly is rebuilt once per character.
+
+That matters most when the input is an expression, because the
+intermediate states are not just wasted work, they are mostly *invalid*
+work. Typing `condition == "Disease"` walks through `c`, `co`, `con`, …
+and every one of those is a complete render cycle spent on an expression
+that cannot parse.
+
+Wrap the read in
+[`shiny::debounce()`](https://rdrr.io/pkg/shiny/man/debounce.html) so a
+burst of typing collapses into one render once the user pauses:
+
+``` r
+
+# Once, in the module server body -- not inside a reactive.
+filter_text <- debounce(reactive(input$row_filter), 700)
+
+filtered <- reactive({
+    keep <- safe_eval_filter(filter_text(), data())
+    if (is.null(keep)) data() else data()[keep, , drop = FALSE]
+})
+```
+
+[`debounce()`](https://rdrr.io/pkg/shiny/man/debounce.html) emits its
+initial value immediately and then holds the previous value while
+typing, so startup is unaffected and there is no blank first render to
+design around.
+
+Debounce any
+[`textInput()`](https://rdrr.io/pkg/shiny/man/textInput.html)/[`textAreaInput()`](https://rdrr.io/pkg/shiny/man/textAreaInput.html)
+a plot reads, especially one holding an expression. 500-800ms is a good
+range; the more expensive the plot, the longer the delay earns its keep.
+
+Leave select, numeric, checkbox, and slider inputs alone. They report
+discrete choices rather than keystrokes, so there is nothing to
+collapse.
+
+Create the debounced reactive **once** in the server body. Creating it
+inside another reactive rebuilds the timer on every invalidation, which
+defeats it.
+
+Debouncing is not a substitute for the Auto Update tack. The tack lets
+the user opt out of live updates entirely; debouncing makes live updates
+bearable for the user who leaves it on.
+
+[`ComplexHeatmap_HeatmapServer()`](https://j-andrews7.github.io/VizModules/dev/reference/ComplexHeatmap_HeatmapServer.md)’s
+Row/Column Filter inputs are the worked example — a heatmap is drawn to
+a device and measured before it can be shown, so a per-keystroke rebuild
+is especially painful there.
 
 ## Persisting Manual Layout Edits
 
