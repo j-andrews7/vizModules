@@ -2,6 +2,8 @@
 
 ## VizModules 0.5.0.9000
 
+The one where we make the heatmap module not suck.
+
 ### Improved/New Functionality
 
 - [`createModuleApp()`](https://j-andrews7.github.io/VizModules/dev/reference/createModuleApp.md)
@@ -87,16 +89,6 @@
   binding, omitted fields backfill from `row_spec`, and the module
   server resolves palettes immediately and disables output suspension
   for annotation color controls.
-- Fixed `fit.width` doing nothing for a heatmap that is not on the
-  active tab at page load. Such a widget measures zero wide, so there
-  was nothing to scale against and the fit gave up, leaving it at
-  `InteractiveComplexHeatmap`’s baked-in pixel width until the resize
-  handle was dragged. The fit is now retried when the container is first
-  laid out (opening the tab, typically) and stops watching once it
-  lands. It also reports the new size back through the widget’s own
-  resize inputs, so an app tracking the heatmap’s geometry server-side —
-  to map a cursor back to a cell, say — is not left measuring against a
-  layout that no longer exists.
 - Fixed every module-hosted `ComplexHeatmap` heatmap silently never
   drawing. `InteractiveComplexHeatmap` keys its registry by
   `validate_heatmap_id()`, which rewrites each non-word character to
